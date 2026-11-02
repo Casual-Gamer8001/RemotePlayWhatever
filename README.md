@@ -1,3 +1,16 @@
+>[!NOTE]
+> **About this fork.** This fork works with current Steam clients. It is upstream RemotePlayWhatever plus:
+> - the Steam-update fix from [pull request #289](https://github.com/m4dEngi/RemotePlayWhatever/pull/289) by @okabeeer: Steam's internal functions are looked up by name, so Steam updates don't break it, and invites create a real Remote Play Together group so guests can play, not just watch. **The fix only works in 64-bit builds** (`cmake -B build -A x64`), not the 32-bit build described below.
+> - clickable guest links (Steam leaves out `https://`)
+> - a separate control row for every guest, including Steam Link guests who join without a Steam account
+> - a fresh Remote Play group check before every invite, and a question instead of a silent watch-only fallback when Steam won't create one
+> - the game that will be shared, shown at the top of the main window
+> - an "Everyone" row and in-game hotkeys: Ctrl+Alt+K / M / C turn keyboard / mouse / controller on or off for everyone, Ctrl+Alt+D takes all control, Ctrl+Alt+G gives it back
+> - a friend search box, and one window at a time
+> - fixes: the control window no longer steals focus from a fullscreen game or keeps the app running after the main window is closed
+>
+> The upstream notice below describes the official 0.2.14 release.
+
 >[!CAUTION]
 > This application does not function as intended due to breaking changes in the latest Steam Client releases! ( see: https://github.com/m4dEngi/RemotePlayWhatever/issues/285 https://github.com/m4dEngi/RemotePlayWhatever/issues/279 )
 > Consider using an [alternative](#alternatives)!
