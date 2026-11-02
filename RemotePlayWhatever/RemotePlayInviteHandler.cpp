@@ -518,6 +518,26 @@ void RemotePlayInviteHandler::OnRemotePlayInviteResult(RemotePlayInviteResult_t*
         }
         GClientContext()->RemoteClientManager()->ShowRemotePlayTogetherUI(GetRunningGameID().AppID());
     }
+    else
+    {
+        // A failed or declined invite isn't part of the session any more.
+        for (size_t i = 0; i < m_invited.size(); ++i)
+        {
+            const RemotePlayPlayer_t& sent = m_invited[i];
+            if (sent.m_playerID == inviteResultCb->m_player.m_playerID &&
+                (sent.m_unGuestID == inviteResultCb->m_player.m_unGuestID || inviteResultCb->m_player.m_unGuestID == 0))
+            {
+                m_invited.erase(m_invited.begin() + i);
+                ++m_rosterRevision;
+                break;
+            }
+        }
+        // Nothing left to share, so don't keep the screen shared for nobody.
+        if (m_guests.empty() && m_invited.empty() && m_pending.empty())
+        {
+            EndSession();
+        }
+    }
 }
 
 void RemotePlayInviteHandler::OnRemotePlayStop(RemoteClientStopStreamSession_t* streamStopCb)
