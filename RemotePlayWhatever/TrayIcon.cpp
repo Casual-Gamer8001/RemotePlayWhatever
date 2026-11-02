@@ -1,3 +1,4 @@
+#include <wx/config.h>
 #include <wx/menu.h>
 #include "TrayIcon.h"
 #include "FriendsListFrame.h"
@@ -35,6 +36,22 @@ void RpwTrayIcon::SetStatus(const wxString& status)
         tip = tip.Left(117) + "...";
     }
     SetIcon(m_icon, tip);
+}
+
+void RpwTrayIcon::ShowHiddenHintOnce()
+{
+#if wxUSE_TASKBARICON_BALLOONS
+    wxConfigBase* config = wxConfigBase::Get();
+    if (!config || config->ReadBool("/Options/TrayHintShown", false))
+    {
+        return;
+    }
+    config->Write("/Options/TrayHintShown", true);
+    config->Flush();
+    ShowBalloon("Remote Play Whatever is still running",
+                "It's by the clock (under ^ if you don't see it). Click it, or open the app again, to bring the window back.",
+                0, wxICON_INFORMATION);
+#endif
 }
 
 wxMenu* RpwTrayIcon::CreatePopupMenu()
