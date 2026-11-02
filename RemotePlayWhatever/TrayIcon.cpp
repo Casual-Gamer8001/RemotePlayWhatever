@@ -40,7 +40,7 @@ void RpwTrayIcon::SetStatus(const wxString& status)
 
 void RpwTrayIcon::ShowHiddenHintOnce()
 {
-#if wxUSE_TASKBARICON_BALLOONS
+#if defined(__WXMSW__) && wxUSE_TASKBARICON_BALLOONS
     wxConfigBase* config = wxConfigBase::Get();
     if (!config || config->ReadBool("/Options/TrayHintShown", false))
     {
