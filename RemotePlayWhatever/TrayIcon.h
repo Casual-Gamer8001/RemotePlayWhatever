@@ -16,6 +16,9 @@ public:
     RpwTrayIcon(FriendsListFrame* main, ControlFrame* controls, RemotePlayInviteHandler* handler);
 
     void SetStatus(const wxString& status);
+    // The first time the window hides here, say where it went (new tray
+    // icons start out under the ^ on Windows 11).
+    void ShowHiddenHintOnce();
 
 protected:
     virtual wxMenu* CreatePopupMenu() override;

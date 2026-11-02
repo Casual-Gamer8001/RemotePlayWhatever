@@ -142,6 +142,7 @@ void FriendsListFrame::OnIconize(wxIconizeEvent& event)
     if (event.IsIconized() && m_tray && m_tray->IsIconInstalled())
     {
         Hide();
+        m_tray->ShowHiddenHintOnce();
     }
     event.Skip();
 }
