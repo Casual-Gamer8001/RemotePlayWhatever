@@ -1,3 +1,10 @@
+#include <wx/defs.h>
+// Windows headers come first: Steamworks.h includes windows.h itself, and
+// wx's copy must come before it so the winsock headers don't clash.
+#ifdef __WXMSW__
+#include <wx/msw/wrapwin.h>
+#include <mmsystem.h>
+#endif
 #include <wx/bitmap.h>
 #include <wx/config.h>
 #include <wx/icon.h>
@@ -5,10 +12,7 @@
 #include <wx/utils.h>
 #include "UiHelpers.h"
 
-#ifdef __WXMSW__
-#include <wx/msw/wrapwin.h>
-#include <mmsystem.h>
-#else
+#ifndef __WXMSW__
 #include "appicon.xpm"
 #endif
 
