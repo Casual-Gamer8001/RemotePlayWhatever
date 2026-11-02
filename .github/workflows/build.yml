@@ -1,0 +1,139 @@
+name: Build
+
+# Every push builds a 64-bit Windows package. Pushes to master publish it as
+# the latest release; pushes to other branches replace that branch's test
+# (pre-release) build, tagged branch-<name>. A Linux job checks that the code
+# still compiles there too.
+
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  WX_VERSION: 3.2.12
+  PACKAGE: RemotePlayWhatever-win64.zip
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download wxWidgets (prebuilt 64-bit DLL build)
+        shell: pwsh
+        run: |
+          $base = "https://github.com/wxWidgets/wxWidgets/releases/download/v$env:WX_VERSION"
+          New-Item -ItemType Directory -Force -Path wx | Out-Null
+          foreach ($pkg in "wxWidgets-$env:WX_VERSION-headers.7z",
+                           "wxMSW-$($env:WX_VERSION)_vc14x_x64_Dev.7z",
+                           "wxMSW-$($env:WX_VERSION)_vc14x_x64_ReleaseDLL.7z") {
+            Invoke-WebRequest -Uri "$base/$pkg" -OutFile $pkg
+            7z x $pkg -owx -y | Out-Null
+            if ($LASTEXITCODE) { throw "Couldn't unpack $pkg" }
+          }
+
+      # open-steamworks is built by a CMake custom command that calls msbuild.
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Build
+        shell: pwsh
+        run: |
+          $wx = (Resolve-Path wx).Path
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 "-DwxWidgets_ROOT_DIR=$wx" "-DwxWidgets_LIB_DIR=$wx/lib/vc14x_x64_dll" -DwxWidgets_CONFIGURATION=mswu
+          if ($LASTEXITCODE) { throw 'CMake configure failed' }
+          cmake --build build --config Release -- /m /nologo /v:minimal
+          if ($LASTEXITCODE) { throw 'Build failed' }
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $out = 'build/RemotePlayWhatever/Release'
+          $exe = Join-Path $out 'RemotePlayWhatever.exe'
+          $wxLib = (Resolve-Path 'wx/lib/vc14x_x64_dll').Path
+          $vs = & "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe" -latest -products * -property installationPath
+          $dumpbin = Get-ChildItem "$vs/VC/Tools/MSVC" -Recurse -Filter dumpbin.exe | Where-Object { $_.FullName -match 'Hostx64[\\/]x64' } | Sort-Object FullName -Descending | Select-Object -First 1
+          $crt = Get-ChildItem "$vs/VC/Redist/MSVC" -Directory | Where-Object Name -match '^\d' | Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
+          $crtDir = Get-ChildItem (Join-Path $crt.FullName 'x64') -Directory -Filter 'Microsoft.VC*.CRT' | Select-Object -First 1
+
+          $stage = New-Item -ItemType Directory -Force -Path package
+          Copy-Item $exe, (Join-Path $out 'OpenSteamAPI64.dll') $stage
+
+          # wxWidgets DLLs the program needs (and the ones they need).
+          $seen = @{}
+          $queue = [System.Collections.Generic.Queue[string]]::new()
+          $queue.Enqueue((Resolve-Path $exe).Path)
+          while ($queue.Count) {
+            $deps = & $dumpbin.FullName /nologo /dependents $queue.Dequeue() | ForEach-Object { "$_".Trim() } | Where-Object { $_ -match '^wx.+\.dll$' }
+            foreach ($d in $deps) {
+              if (-not $seen[$d]) { $seen[$d] = $true; Copy-Item (Join-Path $wxLib $d) $stage; $queue.Enqueue((Join-Path $wxLib $d)) }
+            }
+          }
+
+          # Microsoft's C++ runtime, app-local, so the package runs on PCs without the redistributable.
+          Copy-Item (Join-Path $crtDir.FullName '*.dll') $stage
+
+          [ordered]@{
+            Source     = "$env:GITHUB_REPOSITORY $env:GITHUB_REF_NAME"
+            Repo       = $env:GITHUB_REPOSITORY
+            Branch     = $env:GITHUB_REF_NAME
+            Sha        = $env:GITHUB_SHA
+            Run        = [int]$env:GITHUB_RUN_NUMBER
+            WxVersion  = $env:WX_VERSION
+            Toolset    = "GitHub Actions windows-2022, MSVC $($crt.Name)"
+            BuiltAt    = (Get-Date).ToUniversalTime().ToString('o')
+          } | ConvertTo-Json | Set-Content -Path (Join-Path $stage 'version.json') -Encoding utf8
+
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $env:PACKAGE -Force
+          Get-ChildItem $stage | ForEach-Object { '{0,10}  {1}' -f $_.Length, $_.Name }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RemotePlayWhatever-win64
+          path: ${{ env.PACKAGE }}
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $short = $env:GITHUB_SHA.Substring(0, 7)
+          $subject = (git log -1 --format=%s).Trim()
+          if ($env:GITHUB_REF_NAME -eq 'master') {
+            $tag = "build-$env:GITHUB_RUN_NUMBER"
+            gh release create $tag $env:PACKAGE --target $env:GITHUB_SHA --latest `
+              --title "RemotePlayWhatever build $env:GITHUB_RUN_NUMBER ($short)" `
+              --notes "Built from master at $env:GITHUB_SHA.`n`nLatest change: $subject"
+          } else {
+            $tag = 'branch-' + ($env:GITHUB_REF_NAME -replace '[^A-Za-z0-9._-]', '-')
+            gh release delete $tag --cleanup-tag --yes 2>$null
+            $global:LASTEXITCODE = 0
+            gh release create $tag $env:PACKAGE --target $env:GITHUB_SHA --prerelease --latest=false `
+              --title "Test build: $env:GITHUB_REF_NAME ($short)" `
+              --notes "Test build of branch $env:GITHUB_REF_NAME at $env:GITHUB_SHA. Not for everyday use.`n`nLatest change: $subject"
+          }
+          if ($LASTEXITCODE) { throw 'Publishing the release failed' }
+
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake libwxgtk3.2-dev
+
+      - name: Build
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j "$(nproc)"
