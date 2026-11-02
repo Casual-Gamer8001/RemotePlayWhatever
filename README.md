@@ -1,13 +1,17 @@
 >[!NOTE]
-> **About this fork.** This fork works with current Steam clients. It is upstream RemotePlayWhatever plus:
+> **About this fork.** This fork works with current Steam clients. **To install on Windows,** download `RemotePlayWhatever-win64.zip` from the [latest release](https://github.com/Casual-Gamer8001/RemotePlayWhatever/releases/latest), unzip it anywhere and run `RemotePlayWhatever.exe` (everything it needs is included). Every push is built by GitHub Actions.
+>
+> It is upstream RemotePlayWhatever plus:
 > - the Steam-update fix from [pull request #289](https://github.com/m4dEngi/RemotePlayWhatever/pull/289) by @okabeeer: Steam's internal functions are looked up by name, so Steam updates don't break it, and invites create a real Remote Play Together group so guests can play, not just watch. **The fix only works in 64-bit builds** (`cmake -B build -A x64`), not the 32-bit build described below.
+> - non-Steam games (emulators and other shortcuts) are shown by name, and sharing stops by itself when the game closes, so guests don't keep seeing your desktop
+> - End session (disconnect everyone, cancel unused invites and guest links, stop sharing), Copy guest link, and a Remove button for each guest
 > - clickable guest links (Steam leaves out `https://`)
 > - a separate control row for every guest, including Steam Link guests who join without a Steam account
 > - a fresh Remote Play group check before every invite, and a question instead of a silent watch-only fallback when Steam won't create one
-> - the game that will be shared, shown at the top of the main window
+> - the game that will be shared, and who's connected, shown at the top of the main window
 > - an "Everyone" row and in-game hotkeys: Ctrl+Alt+K / M / C turn keyboard / mouse / controller on or off for everyone, Ctrl+Alt+D takes all control, Ctrl+Alt+G gives it back
 > - a friend search box, and one window at a time
-> - fixes: the control window no longer steals focus from a fullscreen game or keeps the app running after the main window is closed
+> - fixes: Steam calls are checked before they're made (so a Steam update can't make it call the wrong function), clearer startup errors, and the control window no longer steals focus from a fullscreen game or keeps the app running after the main window is closed
 >
 > The upstream notice below describes the official 0.2.14 release.
 
