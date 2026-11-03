@@ -11,6 +11,8 @@
 > - the game that will be shared, and who's connected, shown at the top of the main window
 > - an "Everyone" row and in-game hotkeys: Ctrl+Alt+K / M / C turn keyboard / mouse / controller on or off for everyone, Ctrl+Alt+D takes all control, Ctrl+Alt+G gives it back
 > - a friend search box, and one window at a time
+> - a tray icon: minimizing hides the window by the clock, its right-click menu has the session buttons, and opening the app again brings the window back
+> - short sounds when a guest joins or leaves (turn them off from the tray menu), and what each friend may use (keyboard, mouse, controller) is remembered for the next time they join
 > - fixes: Steam calls are checked before they're made (so a Steam update can't make it call the wrong function), clearer startup errors, and the control window no longer steals focus from a fullscreen game or keeps the app running after the main window is closed
 >
 > The upstream notice below describes the official 0.2.14 release.
