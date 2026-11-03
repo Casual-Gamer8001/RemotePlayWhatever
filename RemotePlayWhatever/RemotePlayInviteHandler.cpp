@@ -138,6 +138,7 @@ void RemotePlayInviteHandler::GroupTick()
     if (m_groupState == GroupReady && !m_pending.empty())
     {
         CRemoteClientManagerByName* rcm = GClientContext()->RemoteClientManager();
+        bool refused = false;
         for (size_t i = 0; i < m_pending.size(); ++i)
         {
             uint32 guest = rcm->GetAvailableRemotePlayTogetherGuestID(m_groupID);
@@ -148,13 +149,32 @@ void RemotePlayInviteHandler::GroupTick()
             m_remoteGuestID = guest + 1;
 
             RemotePlayPlayer_t rppInvitee = { m_pending[i].invitee, guest, m_groupID, 0, 0, 0 };
-            rcm->BCreateRemotePlayInviteAndSession(rppInvitee, m_pending[i].appID);
-            m_invited.push_back(rppInvitee);
-            clientvt::Log("[rp] invite sent: steam=%llu guest=%u group=%u app=%u\n",
+            bool sent = rcm->BCreateRemotePlayInviteAndSession(rppInvitee, m_pending[i].appID);
+            clientvt::Log("[rp] invite %s: steam=%llu guest=%u group=%u app=%u\n", sent ? "sent" : "refused by Steam",
                           (unsigned long long)rppInvitee.m_playerID.ConvertToUint64(), guest, m_groupID,
                           (unsigned)m_pending[i].appID);
+            if (sent)
+            {
+                m_invited.push_back(rppInvitee);
+            }
+            else
+            {
+                // Steam didn't create it, so there's nothing to wait for.
+                refused = true;
+                std::cout << "Error: Steam didn't send the invite." << std::endl;
+            }
         }
         m_pending.clear();
+
+        if (refused)
+        {
+            // Nothing left to share, so don't keep the screen shared for nobody.
+            if (m_guests.empty() && m_invited.empty())
+            {
+                EndSession();
+            }
+            m_notice = "Steam didn't send the invite. Try again, or restart the game through Steam if it keeps happening.";
+        }
     }
 }
 

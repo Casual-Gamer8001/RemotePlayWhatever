@@ -200,7 +200,7 @@ void FriendsListFrame::UpdateStatus()
     wxColour colour = wxSystemSettings::GetColour(wxSYS_COLOUR_GRAYTEXT);
     bool session = m_pRemoteInvite->IsSessionActive();
 
-    if (!m_notice.empty() && wxGetLocalTimeMillis() < m_noticeUntil && !session)
+    if (!m_notice.empty() && wxGetLocalTimeMillis() < m_noticeUntil)
     {
         text = m_notice;
         colour = kNoticeOrange;
@@ -534,6 +534,7 @@ void FriendsListFrame::OnFriendPanelClick(wxCommandEvent &event)
     wxMessageDialog* dlg = new wxMessageDialog(this, "Send remote play invite to " + sender->GetDisplayPersonaName()  + "?", "Confirm Remote Play Invite", wxOK | wxCANCEL);
     if(dlg->ShowModal() == wxID_OK)
     {
+        m_notice.clear();   // an old message would be about something else
         m_pRemoteInvite->SendInvite(invitee);
     }
     delete dlg;
@@ -554,6 +555,7 @@ void FriendsListFrame::OnGuestPanelClick(wxCommandEvent &event)
     wxMessageDialog* dlg = new wxMessageDialog(this, "Create guest invite link?", "Confirm Remote Play Invite", wxOK | wxCANCEL);
     if(dlg->ShowModal() == wxID_OK)
     {
+        m_notice.clear();   // an old message would be about something else
         m_pRemoteInvite->SendInvite(CSteamID(0, k_EUniversePublic, k_EAccountTypeIndividual));
     }
     delete dlg;
