@@ -443,7 +443,7 @@ void FriendsListFrame::OnPersonaStateChange(PersonaStateChange_t* personaStateCb
     }
 
     CSteamID steamID(personaStateCb->m_ulSteamID);
-    bool known = m_friendPanels.count(personaStateCb->m_ulSteamID) != 0;
+    bool known = m_friendPanels.count(steamID.ConvertToUint64()) != 0;
     if(GClientContext()->SteamFriends()->GetFriendRelationship(steamID) != k_EFriendRelationshipFriend)
     {
         // Unfriended (or someone who isn't a friend, like a link guest).
