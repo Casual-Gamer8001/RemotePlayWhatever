@@ -34,6 +34,8 @@ public:
 private:
     void AddFreiendPanel(CSteamID friendID);
     void RemoveFriendPanel(CSteamID friendID);
+    // Online friends first, then offline ones, each sorted by name.
+    void ArrangeFriendPanels();
 
     bool ShowNonSteamWarning();
     bool CanSendInvite();
@@ -41,6 +43,10 @@ private:
     RemotePlayInviteHandler* m_pRemoteInvite;
     wxScrolledWindow* m_friendsListContainer;
     wxBoxSizer* m_friendsListSizer;
+    wxBoxSizer* m_onlineSizer;
+    wxBoxSizer* m_offlineSizer;
+    wxStaticText* m_onlineLabel;
+    wxStaticText* m_offlineLabel;
 
     std::map<uint64, FriendPanel*> m_friendPanels;
 

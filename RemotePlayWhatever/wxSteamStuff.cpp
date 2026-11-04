@@ -26,7 +26,7 @@ wxBitmap SteamImageToBitmap(int imageID)
         delete[] buf;
     }
 
-    return wxBitmap(wImage);
+    return wImage.IsOk() ? wxBitmap(wImage) : wxNullBitmap;
 }
 
 wxSteamID::wxSteamID(CSteamID steamID):

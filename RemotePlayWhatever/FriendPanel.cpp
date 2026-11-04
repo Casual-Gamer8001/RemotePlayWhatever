@@ -3,41 +3,29 @@
 
 FriendPanel::FriendPanel(wxWindow* parent, wxWindowID winID, CSteamID friendID):
     ClickablePanel(parent, winID),
-    m_steamID(friendID),
     m_personaNameLabel(nullptr),
-    m_personaStateLabel(nullptr)
+    m_personaStateLabel(nullptr),
+    m_steamID(friendID),
+    m_online(true)
 {
     wxBoxSizer* rootSizer = new wxBoxSizer( wxHORIZONTAL );
 
     SetBackgroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW));
 
-    int av = GClientContext()->SteamFriends()->GetSmallFriendAvatar(friendID);
-    if(av)
-    {
-        m_personaImg = new wxStaticBitmap( this, wxID_ANY, SteamImageToBitmap(av), wxDefaultPosition, wxSize( 32,32 ), 0 );
-    }
-    else
-    {
-        m_personaImg = new wxStaticBitmap( this, wxID_ANY, wxNullBitmap, wxDefaultPosition, wxSize( 32,32 ), 0 );
-    }
-
+    m_personaImg = new wxStaticBitmap( this, wxID_ANY, wxNullBitmap, wxDefaultPosition, wxSize( 32,32 ), 0 );
     rootSizer->Add( m_personaImg, 0, wxALL, 10 );
 
     wxBoxSizer* textSizer = new wxBoxSizer( wxVERTICAL );
 
     textSizer->Add( 0, 0, 1, wxEXPAND, 5 );
-    wxString personaName;
-    if(friendID.IsValid())
-    {
-        personaName = wxString(GClientContext()->SteamFriends()->GetFriendPersonaName(friendID), wxConvUTF8);
-    }
-    m_personaNameLabel = new wxStaticText(this, wxID_ANY, personaName, wxDefaultPosition, wxDefaultSize, 0 );
+    m_personaNameLabel = new wxStaticText(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0 );
     textSizer->Add( m_personaNameLabel, 0, wxALL | wxEXPAND, 5 );
 
     textSizer->Add( 0, 0, 1, wxEXPAND, 5 );
     rootSizer->Add( textSizer, 1, wxALL|wxEXPAND, 5 );
 
     SetSizer( rootSizer );
+    UpdatePersona();
     Layout();
 
     RBindBaseEvents();
@@ -45,6 +33,51 @@ FriendPanel::FriendPanel(wxWindow* parent, wxWindowID winID, CSteamID friendID):
 
 FriendPanel::~FriendPanel()
 {
+}
+
+void FriendPanel::UpdatePersona()
+{
+    if (!m_steamID.IsValid())
+    {
+        return;
+    }
+
+    ISteamFriends015* friends = GClientContext()->SteamFriends();
+    EPersonaState state = friends->GetFriendPersonaState(m_steamID);
+    m_online = state != k_EPersonaStateOffline && state != k_EPersonaStateInvisible;
+
+    wxString name(friends->GetFriendPersonaName(m_steamID), wxConvUTF8);
+    if (!name.empty())
+    {
+        m_personaNameLabel->SetLabel(name);
+    }
+    else
+    {
+        // Steam doesn't have it yet; it arrives in a later persona update.
+        friends->RequestUserInformation(m_steamID, true);
+    }
+
+    int av = friends->GetSmallFriendAvatar(m_steamID);
+    if (av > 0)
+    {
+        wxBitmap avatar = SteamImageToBitmap(av);
+        if (avatar.IsOk())
+        {
+            m_avatar = avatar;
+        }
+    }
+    if (m_avatar.IsOk())
+    {
+        m_personaImg->SetBitmap(m_online ? m_avatar : m_avatar.ConvertToDisabled());
+    }
+
+    m_personaNameLabel->SetForegroundColour(NormalForeground());
+    m_personaNameLabel->Refresh();
+}
+
+wxColour FriendPanel::NormalForeground() const
+{
+    return wxSystemSettings::GetColour(m_online ? wxSYS_COLOUR_WINDOWTEXT : wxSYS_COLOUR_GRAYTEXT);
 }
 
 CSteamID FriendPanel::GetSteamID()
