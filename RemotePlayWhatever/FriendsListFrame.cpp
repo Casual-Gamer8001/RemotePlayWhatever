@@ -2,6 +2,7 @@
 #include <wx/clipbrd.h>
 #include <wx/srchctrl.h>
 #include <wx/time.h>
+#include <algorithm>
 #include <cstring>
 #include <vector>
 #ifdef __WXMSW__
@@ -19,6 +20,10 @@ static const wxColour kNoticeOrange(190, 100, 0);
 
 FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     wxFrame(NULL, wxID_ANY, _("Remote Play Whatever"), wxPoint(50, 50), wxSize(275, 650)),
+    m_onlineSizer(nullptr),
+    m_offlineSizer(nullptr),
+    m_onlineLabel(nullptr),
+    m_offlineLabel(nullptr),
     m_tray(nullptr),
     m_search(nullptr),
     m_status(nullptr),
@@ -80,18 +85,28 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     m_search->Bind(wxEVT_TEXT, [this](wxCommandEvent&) { ApplyFilter(); });
     m_search->Bind(wxEVT_SEARCHCTRL_CANCEL_BTN, [this](wxCommandEvent&) { m_search->Clear(); ApplyFilter(); });
 
+    // Online friends, then the ones who appear offline (they may just be
+    // invisible, and an invite link reaches them in Steam chat anyway).
+    wxColour headerColour = wxSystemSettings::GetColour(wxSYS_COLOUR_GRAYTEXT);
+    m_onlineLabel = new wxStaticText(m_friendsListContainer, wxID_ANY, "Online");
+    m_onlineLabel->SetForegroundColour(headerColour);
+    m_friendsListSizer->Add(m_onlineLabel, 0, wxLEFT | wxRIGHT | wxBOTTOM, 8);
+    m_onlineSizer = new wxBoxSizer(wxVERTICAL);
+    m_friendsListSizer->Add(m_onlineSizer, 0, wxEXPAND);
+    m_offlineLabel = new wxStaticText(m_friendsListContainer, wxID_ANY, "Offline");
+    m_offlineLabel->SetForegroundColour(headerColour);
+    m_friendsListSizer->Add(m_offlineLabel, 0, wxLEFT | wxRIGHT | wxTOP | wxBOTTOM, 8);
+    m_offlineSizer = new wxBoxSizer(wxVERTICAL);
+    m_friendsListSizer->Add(m_offlineSizer, 0, wxEXPAND);
+
     int cFriends = GClientContext()->SteamFriends()->GetFriendCount(k_EFriendFlagImmediate);
     for(int i = 0; i < cFriends; ++i)
     {
-        CSteamID friendSteamID = GClientContext()->SteamFriends()->GetFriendByIndex(i, k_EFriendFlagImmediate);
-        EPersonaState personaState = GClientContext()->SteamFriends()->GetFriendPersonaState(friendSteamID);
-        if(personaState != k_EPersonaStateOffline && personaState != k_EPersonaStateInvisible)
-        {
-            AddFreiendPanel(friendSteamID);
-        }
+        AddFreiendPanel(GClientContext()->SteamFriends()->GetFriendByIndex(i, k_EFriendFlagImmediate));
     }
 
     m_friendsListContainer->SetSizer( m_friendsListSizer );
+    ArrangeFriendPanels();
     m_friendsListContainer->Layout();
     m_friendsListSizer->Fit( m_friendsListContainer );
     frameSizer->Add( m_friendsListContainer, 1, wxEXPAND | wxALL, 0 );
@@ -368,17 +383,14 @@ static wxString DescribeLaunchResult(ERemoteClientLaunchResult result)
 
 void FriendsListFrame::AddFreiendPanel(CSteamID friendID)
 {
-    FriendPanel* fp = new FriendPanel(m_friendsListContainer, rpwID_INVITE_FRIEND, friendID);
-    m_friendsListSizer->Add(fp, 0, wxBOTTOM | wxEXPAND, 1);
-
     uint64 friendID64 = friendID.ConvertToUint64();
     auto it = m_friendPanels.find(friendID64);
     if(it != m_friendPanels.end())
     {
-        m_friendsListContainer->RemoveChild((*it).second);
-        (*it).second->Destroy();
+        (*it).second->UpdatePersona();
+        return;
     }
-    m_friendPanels[friendID.ConvertToUint64()] = fp;
+    m_friendPanels[friendID64] = new FriendPanel(m_friendsListContainer, rpwID_INVITE_FRIEND, friendID);
 }
 
 void FriendsListFrame::RemoveFriendPanel(CSteamID friendID)
@@ -387,10 +399,40 @@ void FriendsListFrame::RemoveFriendPanel(CSteamID friendID)
     auto it = m_friendPanels.find(friendID64);
     if(it != m_friendPanels.end())
     {
-        m_friendsListContainer->RemoveChild((*it).second);
-        (*it).second->Destroy();
+        FriendPanel* panel = (*it).second;
+        m_onlineSizer->Detach(panel);
+        m_offlineSizer->Detach(panel);
+        panel->Destroy();
         m_friendPanels.erase(it);
     }
+}
+
+void FriendsListFrame::ArrangeFriendPanels()
+{
+    std::vector<FriendPanel*> online, offline;
+    for (auto it = m_friendPanels.begin(); it != m_friendPanels.end(); ++it)
+    {
+        (it->second->IsOnline() ? online : offline).push_back(it->second);
+    }
+    auto byName = [](FriendPanel* a, FriendPanel* b)
+    {
+        return a->GetDisplayPersonaName().CmpNoCase(b->GetDisplayPersonaName()) < 0;
+    };
+    std::sort(online.begin(), online.end(), byName);
+    std::sort(offline.begin(), offline.end(), byName);
+
+    // Detach only; the panels themselves stay.
+    m_onlineSizer->Clear(false);
+    m_offlineSizer->Clear(false);
+    for (size_t i = 0; i < online.size(); ++i)
+    {
+        m_onlineSizer->Add(online[i], 0, wxBOTTOM | wxEXPAND, 1);
+    }
+    for (size_t i = 0; i < offline.size(); ++i)
+    {
+        m_offlineSizer->Add(offline[i], 0, wxBOTTOM | wxEXPAND, 1);
+    }
+    ApplyFilter();
 }
 
 void FriendsListFrame::OnPersonaStateChange(PersonaStateChange_t* personaStateCb)
@@ -400,33 +442,49 @@ void FriendsListFrame::OnPersonaStateChange(PersonaStateChange_t* personaStateCb
         return;
     }
 
-    if(!(GClientContext()->SteamFriends()->GetFriendRelationship(personaStateCb->m_ulSteamID) &
-        k_EFriendRelationshipFriend))
+    CSteamID steamID(personaStateCb->m_ulSteamID);
+    bool known = m_friendPanels.count(personaStateCb->m_ulSteamID) != 0;
+    if(GClientContext()->SteamFriends()->GetFriendRelationship(steamID) != k_EFriendRelationshipFriend)
+    {
+        // Unfriended (or someone who isn't a friend, like a link guest).
+        if(known)
+        {
+            RemoveFriendPanel(steamID);
+            ApplyFilter();
+        }
+        return;
+    }
+
+    // Playing a different game, going away and so on don't change the list.
+    const int listChanges = k_EPersonaChangeComeOnline | k_EPersonaChangeGoneOffline | k_EPersonaChangeName |
+                            k_EPersonaChangeNameFirstSet | k_EPersonaChangeAvatar | k_EPersonaChangeRelationshipChanged;
+    if(known && !(personaStateCb->m_nChangeFlags & listChanges))
     {
         return;
     }
 
-    if(personaStateCb->m_nChangeFlags & k_EPersonaChangeGoneOffline)
-    {
-        RemoveFriendPanel(personaStateCb->m_ulSteamID);
-        Layout();
-    }
-    else if(personaStateCb->m_nChangeFlags & k_EPersonaChangeComeOnline)
-    {
-        AddFreiendPanel(personaStateCb->m_ulSteamID);
-        ApplyFilter();   // a friend who just came online still has to match the search
-        Layout();
-    }
+    AddFreiendPanel(steamID);
+    ArrangeFriendPanels();
 }
 
 void FriendsListFrame::ApplyFilter()
 {
     wxString needle = m_search ? m_search->GetValue().Lower().Trim().Trim(false) : wxString();
+    int online = 0, offline = 0;
     for (auto it = m_friendPanels.begin(); it != m_friendPanels.end(); ++it)
     {
         FriendPanel* panel = it->second;
-        panel->Show(needle.empty() || panel->GetDisplayPersonaName().Lower().Contains(needle));
+        bool match = needle.empty() || panel->GetDisplayPersonaName().Lower().Contains(needle);
+        panel->Show(match);
+        if (match)
+        {
+            ++(panel->IsOnline() ? online : offline);
+        }
     }
+    m_onlineLabel->SetLabel(wxString::Format("Online (%d)", online));
+    m_onlineLabel->Show(online > 0);
+    m_offlineLabel->SetLabel(wxString::Format("Offline (%d)", offline));
+    m_offlineLabel->Show(offline > 0);
     m_friendsListContainer->FitInside();
     m_friendsListContainer->Layout();
 }
@@ -531,7 +589,14 @@ void FriendsListFrame::OnFriendPanelClick(wxCommandEvent &event)
 
     FriendPanel* sender = (FriendPanel*)event.GetEventObject();
     CSteamID invitee = sender->GetSteamID();
-    wxMessageDialog* dlg = new wxMessageDialog(this, "Send remote play invite to " + sender->GetDisplayPersonaName()  + "?", "Confirm Remote Play Invite", wxOK | wxCANCEL);
+    wxString question = "Send remote play invite to " + sender->GetDisplayPersonaName() + "?";
+    if(!sender->IsOnline())
+    {
+        question = sender->GetDisplayPersonaName() + " appears offline (they may be invisible). "
+                   "The invite link goes to them in Steam chat, and it should work once they're on Steam, "
+                   "as long as you're still sharing.\n\nSend the invite?";
+    }
+    wxMessageDialog* dlg = new wxMessageDialog(this, question, "Confirm Remote Play Invite", wxOK | wxCANCEL);
     if(dlg->ShowModal() == wxID_OK)
     {
         m_notice.clear();   // an old message would be about something else
