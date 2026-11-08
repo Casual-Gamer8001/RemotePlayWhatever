@@ -51,6 +51,7 @@ private:
     std::map<uint64, FriendPanel*> m_friendPanels;
 
     void OnFriendPanelClick(wxCommandEvent& event);
+    void ConfirmFriendInvite(CSteamID invitee, const wxString& name, bool online);
     void OnGuestPanelClick(wxCommandEvent& event);
     void OnTick(wxTimerEvent& event);
     void OnClose(wxCloseEvent& event);
@@ -71,6 +72,7 @@ private:
     wxLongLong m_copiedUntil;
     wxTimer m_tick;
     bool m_askingGroupFallback;
+    bool m_inviteQueued;
 
     STEAM_CALLBACK(FriendsListFrame, OnRemotePlayInviteResult, RemotePlayInviteResult_t, m_remoteInviteResultCb);
     STEAM_CALLBACK(FriendsListFrame, OnPersonaStateChange, PersonaStateChange_t, m_personaStateCb);

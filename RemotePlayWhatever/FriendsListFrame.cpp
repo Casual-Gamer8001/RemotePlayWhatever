@@ -33,6 +33,7 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     m_copiedUntil(0),
     m_tick(this),
     m_askingGroupFallback(false),
+    m_inviteQueued(false),
     m_remoteInviteResultCb(this, &FriendsListFrame::OnRemotePlayInviteResult),
     m_personaStateCb(this, &FriendsListFrame::OnPersonaStateChange)
 {
@@ -577,6 +578,27 @@ bool FriendsListFrame::ShowNonSteamWarning()
 
 void FriendsListFrame::OnFriendPanelClick(wxCommandEvent &event)
 {
+    // Ask from the main window once this click has been handled: the clicked
+    // panel can go away while a dialog is open (if the friendship ends), so
+    // nothing below may touch it.
+    if(m_inviteQueued)
+    {
+        return;
+    }
+    FriendPanel* sender = (FriendPanel*)event.GetEventObject();
+    CSteamID invitee = sender->GetSteamID();
+    wxString name = sender->GetDisplayPersonaName();
+    bool online = sender->IsOnline();
+    m_inviteQueued = true;
+    CallAfter([this, invitee, name, online]()
+    {
+        ConfirmFriendInvite(invitee, name, online);
+        m_inviteQueued = false;
+    });
+}
+
+void FriendsListFrame::ConfirmFriendInvite(CSteamID invitee, const wxString& name, bool online)
+{
     if(!CanSendInvite())
     {
         return;
@@ -587,12 +609,10 @@ void FriendsListFrame::OnFriendPanelClick(wxCommandEvent &event)
         return;
     }
 
-    FriendPanel* sender = (FriendPanel*)event.GetEventObject();
-    CSteamID invitee = sender->GetSteamID();
-    wxString question = "Send remote play invite to " + sender->GetDisplayPersonaName() + "?";
-    if(!sender->IsOnline())
+    wxString question = "Send remote play invite to " + name + "?";
+    if(!online)
     {
-        question = sender->GetDisplayPersonaName() + " appears offline (they may be invisible). "
+        question = name + " appears offline (they may be invisible). "
                    "The invite link goes to them in Steam chat, and it should work once they're on Steam, "
                    "as long as you're still sharing.\n\nSend the invite?";
     }
