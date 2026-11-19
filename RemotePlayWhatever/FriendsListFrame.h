@@ -34,6 +34,8 @@ public:
 private:
     void AddFreiendPanel(CSteamID friendID);
     void RemoveFriendPanel(CSteamID friendID);
+    // Online friends first, then offline ones, each sorted by name.
+    void ArrangeFriendPanels();
 
     bool ShowNonSteamWarning();
     bool CanSendInvite();
@@ -41,10 +43,15 @@ private:
     RemotePlayInviteHandler* m_pRemoteInvite;
     wxScrolledWindow* m_friendsListContainer;
     wxBoxSizer* m_friendsListSizer;
+    wxBoxSizer* m_onlineSizer;
+    wxBoxSizer* m_offlineSizer;
+    wxStaticText* m_onlineLabel;
+    wxStaticText* m_offlineLabel;
 
     std::map<uint64, FriendPanel*> m_friendPanels;
 
     void OnFriendPanelClick(wxCommandEvent& event);
+    void ConfirmFriendInvite(CSteamID invitee, const wxString& name, bool online);
     void OnGuestPanelClick(wxCommandEvent& event);
     void OnTick(wxTimerEvent& event);
     void OnClose(wxCloseEvent& event);
@@ -65,6 +72,7 @@ private:
     wxLongLong m_copiedUntil;
     wxTimer m_tick;
     bool m_askingGroupFallback;
+    bool m_inviteQueued;
 
     STEAM_CALLBACK(FriendsListFrame, OnRemotePlayInviteResult, RemotePlayInviteResult_t, m_remoteInviteResultCb);
     STEAM_CALLBACK(FriendsListFrame, OnPersonaStateChange, PersonaStateChange_t, m_personaStateCb);
