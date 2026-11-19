@@ -6,7 +6,8 @@ FriendPanel::FriendPanel(wxWindow* parent, wxWindowID winID, CSteamID friendID):
     m_personaNameLabel(nullptr),
     m_personaStateLabel(nullptr),
     m_steamID(friendID),
-    m_online(true)
+    m_online(true),
+    m_requestedInfo(false)
 {
     wxBoxSizer* rootSizer = new wxBoxSizer( wxHORIZONTAL );
 
@@ -47,14 +48,17 @@ void FriendPanel::UpdatePersona()
     m_online = state != k_EPersonaStateOffline && state != k_EPersonaStateInvisible;
 
     wxString name(friends->GetFriendPersonaName(m_steamID), wxConvUTF8);
+    // Until Steam has a friend's profile it reports no name, "[unknown]" or just
+    // their SteamID. Ask for the profile once; it arrives in a persona update.
+    wxString idText = wxString::Format("%llu", (unsigned long long)m_steamID.ConvertToUint64());
+    if ((name.empty() || name == "[unknown]" || name == idText) && !m_requestedInfo)
+    {
+        m_requestedInfo = true;
+        friends->RequestUserInformation(m_steamID, false);
+    }
     if (!name.empty())
     {
         m_personaNameLabel->SetLabel(name);
-    }
-    else
-    {
-        // Steam doesn't have it yet; it arrives in a later persona update.
-        friends->RequestUserInformation(m_steamID, true);
     }
 
     int av = friends->GetSmallFriendAvatar(m_steamID);

@@ -33,6 +33,7 @@ private:
     CSteamID m_steamID;
     wxBitmap m_avatar;
     bool m_online;
+    bool m_requestedInfo;
 };
 
 #endif // FRIENDPANEL_H
