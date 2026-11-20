@@ -4,14 +4,15 @@
 > It is upstream RemotePlayWhatever plus:
 > - the Steam-update fix from [pull request #289](https://github.com/m4dEngi/RemotePlayWhatever/pull/289) by @okabeeer: Steam's internal functions are looked up by name, so Steam updates don't break it, and invites create a real Remote Play Together group so guests can play, not just watch. **The fix only works in 64-bit builds** (`cmake -B build -A x64`).
 > - non-Steam games (emulators and other shortcuts) are shown by name, and sharing stops by itself when the game closes, so guests don't keep seeing your desktop
+> - a new look: the game you're sharing at the top of the main window with its picture from your Steam library, what guests will see, the guest link and session buttons, and short messages in the window (invite sent, link copied) instead of pop-ups; round avatars with status dots and an Invite button for each friend (clicking a friend's row no longer sends an invite by accident); and a guest controls window with a card per guest, keyboard / mouse / controller toggles with icons, and how long each guest has been there
 > - End session (disconnect everyone, cancel unused invites and guest links, stop sharing), Copy guest link, and a Remove button for each guest
 > - clickable guest links (Steam leaves out `https://`)
 > - a separate control row for every guest, including Steam Link guests who join without a Steam account
 > - a fresh Remote Play group check before every invite, and a question instead of a silent watch-only fallback when Steam won't create one
-> - the game that will be shared, and who's connected, shown at the top of the main window
+> - the game that will be shared, and who's connected, shown at the top of the main window; for a non-Steam game (which shares your whole screen) it asks once per session
 > - an "Everyone" row and in-game hotkeys: Ctrl+Alt+K / M / C turn keyboard / mouse / controller on or off for everyone, Ctrl+Alt+D takes all control, Ctrl+Alt+G gives it back
 > - a friend search box (it also finds what friends are playing), and one window at a time
-> - friends who appear offline are listed too (greyed out, below the online ones), so you can still invite someone who's invisible; the invite link reaches them in Steam chat
+> - friends who appear offline are listed too (greyed out, in an Offline group you can fold away), so you can still invite someone who's invisible; the invite link reaches them in Steam chat
 > - what each online friend is doing, under their name: "Playing <game>" (named by Steam even if you don't have the game), Online, Away or Busy
 > - "Played with recently" at the top of the friends list: up to 8 friends who've joined your sessions, most recent first
 > - invites nobody has used yet are listed in the main window with a Cancel button each, so one friend's invite or a guest link can be withdrawn without ending the session
@@ -52,8 +53,8 @@ Download the latest [release](https://github.com/Casual-Gamer8001/RemotePlayWhat
 3. Launch the game you want to play *through the Steam client*.
 4. Alt+Tab (or switch) back to the RemotePlayWhatever window.
 5. Invite your friend(s):
-    - **Direct Invite:** Select a friend from the list. They will receive the invite link via a Steam Chat message.
-    - **Guest Link:** Click the button to generate a guest invite link. The link will be automatically copied to your clipboard, ready for you to paste and share manually.
+    - **Direct Invite:** Click **Invite** next to a friend. They will receive the invite link via a Steam Chat message.
+    - **Guest Link:** Click **Create guest link**. The link is copied to your clipboard, ready for you to paste and share manually (**Copy guest link** copies it again).
 6. Alt+Tab (or switch) back to your game.
 
 ## Command line arguments
