@@ -19,6 +19,7 @@ struct ConnectedGuest
     bool wantKbd;
     bool wantMouse;
     bool wantCtrl;
+    long long joinedAt; // when they connected (Unix time), for "Joined 12 min ago"
     // What the guest had before the host took all control (Ctrl+Alt+D), so
     // giving it back (Ctrl+Alt+G) restores exactly that.
     bool hasSaved;

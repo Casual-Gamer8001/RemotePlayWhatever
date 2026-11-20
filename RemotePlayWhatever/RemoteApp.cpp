@@ -209,7 +209,7 @@ int RemoteApp::OnRun()
         m_controlFrame = new ControlFrame(m_inviteHandler);
         if (m_friendsList->GuestLinkHotKeyUsable())
         {
-            m_controlFrame->AddShortcutHint("L copy a guest link");
+            m_controlFrame->AddShortcutHint('L', "copy a guest link");
         }
 
         // Icon next to the clock; minimizing the main window hides it there.

@@ -1,3 +1,4 @@
+#include <ctime>
 #include <iostream>
 #include "SteamStuff.h"
 #include "RemotePlayInviteHandler.h"
@@ -597,6 +598,7 @@ void RemotePlayInviteHandler::OnRemotePlayStart(RemoteClientStartStreamSession_t
     g.wantCtrl = true;              // default: give a new guest full control
     // ...unless the host chose differently for this friend last time.
     LoadGuestControls(g.steamID, g.wantKbd, g.wantMouse, g.wantCtrl);
+    g.joinedAt = (long long)std::time(nullptr);
     g.hasSaved = false;
     g.savedKbd = g.savedMouse = g.savedCtrl = false;
     m_guests.push_back(g);
