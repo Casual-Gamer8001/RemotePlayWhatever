@@ -1,4 +1,5 @@
 #include <wx/cmdline.h>
+#include <wx/image.h>
 #include <wx/snglinst.h>
 #include <wx/taskbar.h>
 #include <wx/time.h>
@@ -72,6 +73,9 @@ bool RemoteApp::OnInit()
 
     if (!wxApp::OnInit())
         return false;
+
+    // Game pictures in the main window are JPEG and PNG files.
+    wxInitAllImageHandlers();
 
     // Started by an update: let the old copy finish closing first, or the
     // single-instance check below would find it and give up.
