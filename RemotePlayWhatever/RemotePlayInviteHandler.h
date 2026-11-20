@@ -75,6 +75,17 @@ public:
     // The current session's guest link (with https://), or empty if none.
     const std::string& GuestLink() const { return m_guestLink; }
 
+    // Invites sent this session that nobody has used yet (a friend who
+    // hasn't joined, or a guest link nobody has opened).
+    struct WaitingInvite
+    {
+        uint64 steamID;     // the friend, or 0 for a guest link
+        uint32 guestID;     // the guest slot it's for
+    };
+    std::vector<WaitingInvite> WaitingInvites() const;
+    // Cancel one, so it stops working. A session with nothing left in it ends.
+    void CancelWaitingInvite(uint64 steamID, uint32 guestID);
+
     // Roster access + per-guest control, driven by the control window UI.
     // A guest's choices are saved per SteamID and applied when they rejoin.
     const std::vector<ConnectedGuest>& Guests() const { return m_guests; }

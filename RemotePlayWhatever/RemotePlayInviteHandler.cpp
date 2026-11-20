@@ -156,6 +156,7 @@ void RemotePlayInviteHandler::GroupTick()
             if (sent)
             {
                 m_invited.push_back(rppInvitee);
+                ++m_rosterRevision;
             }
             else
             {
@@ -268,6 +269,70 @@ void RemotePlayInviteHandler::RemoveGuest(uint64 key)
                 ++j;
             }
         }
+        return;
+    }
+}
+
+std::vector<RemotePlayInviteHandler::WaitingInvite> RemotePlayInviteHandler::WaitingInvites() const
+{
+    std::vector<WaitingInvite> waiting;
+    for (size_t i = 0; i < m_invited.size(); ++i)
+    {
+        const RemotePlayPlayer_t& sent = m_invited[i];
+        const uint64 friendID = sent.m_playerID.GetAccountID() != 0 ? sent.m_playerID.ConvertToUint64() : 0;
+        // A guest takes the slot their invite reserved; a friend can also be
+        // recognised by their SteamID.
+        bool used = false;
+        for (size_t g = 0; g < m_guests.size() && !used; ++g)
+        {
+            used = m_guests[g].player.m_unGuestID == sent.m_unGuestID || (friendID && m_guests[g].steamID == friendID);
+        }
+        if (!used)
+        {
+            WaitingInvite w;
+            w.steamID = friendID;
+            w.guestID = sent.m_unGuestID;
+            waiting.push_back(w);
+        }
+    }
+    return waiting;
+}
+
+void RemotePlayInviteHandler::CancelWaitingInvite(uint64 steamID, uint32 guestID)
+{
+    for (size_t i = 0; i < m_invited.size(); ++i)
+    {
+        const RemotePlayPlayer_t sent = m_invited[i];
+        const bool link = sent.m_playerID.GetAccountID() == 0;
+        if ((link ? 0 : sent.m_playerID.ConvertToUint64()) != steamID || sent.m_unGuestID != guestID)
+        {
+            continue;
+        }
+
+        GClientContext()->RemoteClientManager()->CancelRemotePlayInviteAndSession(sent);
+        m_invited.erase(m_invited.begin() + i);
+        ++m_rosterRevision;
+        if (link)
+        {
+            bool otherLink = false;
+            for (size_t j = 0; j < m_invited.size(); ++j)
+            {
+                otherLink = otherLink || m_invited[j].m_playerID.GetAccountID() == 0;
+            }
+            if (!otherLink)
+            {
+                m_guestLink.clear();
+            }
+        }
+
+        std::string notice = link ? "The guest link was cancelled, so it no longer works." : "The invite was cancelled.";
+        // Nothing left to share, so don't keep the screen shared for nobody.
+        if (m_guests.empty() && m_invited.empty() && m_pending.empty())
+        {
+            EndSession();
+            notice += " Nobody else was invited, so the session ended.";
+        }
+        m_notice = notice;
         return;
     }
 }
