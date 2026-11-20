@@ -76,15 +76,20 @@ private:
     void OnEndSession(wxCommandEvent& event);
     void OnCopyLink(wxCommandEvent& event);
     void UpdateStatus();
+    // Rows for invites nobody has used yet; true if they changed.
+    bool RefreshWaitingInvites();
     void ApplyFilter();
     void OnUpdaterChange();
     void RefreshUpdateButton();
 
     RpwTrayIcon* m_tray;
     wxSearchCtrl* m_search;
+    wxPanel* m_statusPanel;
     wxStaticText* m_status;
     wxButton* m_copyLinkButton;
     wxButton* m_endButton;
+    wxBoxSizer* m_waitingSizer;
+    wxString m_waitingShown;
     wxButton* m_updateButton;
     AppUpdater* m_updater;
     wxString m_statusShown;

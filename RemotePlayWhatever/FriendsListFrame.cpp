@@ -29,9 +29,11 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     m_offlineLabel(nullptr),
     m_tray(nullptr),
     m_search(nullptr),
+    m_statusPanel(nullptr),
     m_status(nullptr),
     m_copyLinkButton(nullptr),
     m_endButton(nullptr),
+    m_waitingSizer(nullptr),
     m_updateButton(nullptr),
     m_updater(nullptr),
     m_noticeUntil(0),
@@ -56,6 +58,7 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
 
     // What will be shared, so it's clear before inviting anyone.
     wxPanel* statusPanel = new wxPanel(this, wxID_ANY);
+    m_statusPanel = statusPanel;
     statusPanel->SetBackgroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW));
     wxBoxSizer* statusSizer = new wxBoxSizer(wxVERTICAL);
     m_status = new wxStaticText(statusPanel, wxID_ANY, wxEmptyString);
@@ -73,6 +76,9 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     m_endButton->Hide();
     sessionButtons->Add(m_endButton, 1);
     statusSizer->Add(sessionButtons, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 10);
+    // Invites nobody has used yet, each with a Cancel button (RefreshWaitingInvites).
+    m_waitingSizer = new wxBoxSizer(wxVERTICAL);
+    statusSizer->Add(m_waitingSizer, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 10);
     m_updateButton = new wxButton(statusPanel, wxID_ANY, "Update");
     m_updateButton->SetToolTip("Download the new version from GitHub and restart Remote Play Whatever with it.");
     m_updateButton->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { StartUpdate(); });
@@ -322,6 +328,10 @@ void FriendsListFrame::UpdateStatus()
         m_copyLinkButton->SetLabel("Copy guest link");
         m_copiedUntil = 0;
     }
+    if (RefreshWaitingInvites())
+    {
+        relayout = true;
+    }
     if (relayout)
     {
         m_status->GetParent()->Layout();
@@ -332,6 +342,65 @@ void FriendsListFrame::UpdateStatus()
 void FriendsListFrame::OnCopyLink(wxCommandEvent&)
 {
     CopyGuestLink();
+}
+
+bool FriendsListFrame::RefreshWaitingInvites()
+{
+    static const size_t kShown = 4;
+    const std::vector<RemotePlayInviteHandler::WaitingInvite> waiting = m_pRemoteInvite->WaitingInvites();
+    std::vector<wxString> labels;
+    wxString shown;
+    for (size_t i = 0; i < waiting.size(); ++i)
+    {
+        wxString label = "Guest link (not used yet)";
+        if (waiting[i].steamID)
+        {
+            const char* persona = GClientContext()->SteamFriends()->GetFriendPersonaName(CSteamID((uint64)waiting[i].steamID));
+            label = "Waiting for " + (persona && *persona ? wxString::FromUTF8(persona) : wxString("a friend"));
+        }
+        labels.push_back(label);
+        shown += wxString::Format("%llu/%u ", (unsigned long long)waiting[i].steamID, (unsigned)waiting[i].guestID) + label + "\n";
+    }
+    if (shown == m_waitingShown)
+    {
+        return false;
+    }
+    m_waitingShown = shown;
+
+    m_waitingSizer->Clear(true);
+    for (size_t i = 0; i < waiting.size() && i < kShown; ++i)
+    {
+        const uint64 id = waiting[i].steamID;
+        const uint32 guest = waiting[i].guestID;
+        wxBoxSizer* row = new wxBoxSizer(wxHORIZONTAL);
+        wxStaticText* text = new wxStaticText(m_statusPanel, wxID_ANY, labels[i], wxDefaultPosition, wxDefaultSize,
+                                              wxST_NO_AUTORESIZE | wxST_ELLIPSIZE_END);
+        text->SetMinSize(wxSize(FromDIP(40), text->GetBestSize().GetHeight()));
+        text->SetToolTip(id ? labels[i] + " to join." : wxString("Nobody has opened this guest link yet."));
+        row->Add(text, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+        wxButton* cancel = new wxButton(m_statusPanel, wxID_ANY, "Cancel", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+        cancel->SetToolTip(id ? wxString("Cancel this invite, so it no longer works.")
+                              : wxString("Make this guest link stop working."));
+        cancel->Bind(wxEVT_BUTTON, [this, id, guest](wxCommandEvent&)
+        {
+            // Cancelling rebuilds these rows, this button included, so do it
+            // once the click has been handled.
+            CallAfter([this, id, guest]()
+            {
+                m_pRemoteInvite->CancelWaitingInvite(id, guest);
+                UpdateStatus();
+            });
+        });
+        row->Add(cancel, 0, wxALIGN_CENTER_VERTICAL);
+        m_waitingSizer->Add(row, 0, wxEXPAND | wxBOTTOM, 4);
+    }
+    if (waiting.size() > kShown)
+    {
+        m_waitingSizer->Add(new wxStaticText(m_statusPanel, wxID_ANY,
+                                             wxString::Format("and %u more", (unsigned)(waiting.size() - kShown))),
+                            0, wxBOTTOM, 4);
+    }
+    return true;
 }
 
 void FriendsListFrame::CopyGuestLink()
