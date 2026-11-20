@@ -138,3 +138,73 @@ std::map<uint64, long> LoadGuestJoinTimes()
     config->SetPath(oldPath);
     return times;
 }
+
+#ifdef __WXMSW__
+#ifndef WDA_EXCLUDEFROMCAPTURE
+#define WDA_EXCLUDEFROMCAPTURE 0x00000011
+#endif
+namespace
+{
+bool g_hideFromCapture = false;
+HWINEVENTHOOK g_shownHook = nullptr;
+
+void ApplyCaptureSetting(HWND window)
+{
+    // Whole windows of this process only; their controls go with them.
+    DWORD process = 0;
+    ::GetWindowThreadProcessId(window, &process);
+    if (process != ::GetCurrentProcessId() || ::GetAncestor(window, GA_ROOT) != window)
+    {
+        return;
+    }
+    if (!g_hideFromCapture)
+    {
+        ::SetWindowDisplayAffinity(window, WDA_NONE);
+    }
+    else if (!::SetWindowDisplayAffinity(window, WDA_EXCLUDEFROMCAPTURE))
+    {
+        // Before Windows 10 2004 a window can only be blacked out.
+        ::SetWindowDisplayAffinity(window, WDA_MONITOR);
+    }
+}
+
+BOOL CALLBACK ApplyCaptureSettingTo(HWND window, LPARAM)
+{
+    ApplyCaptureSetting(window);
+    return TRUE;
+}
+
+void CALLBACK OnWindowShown(HWINEVENTHOOK, DWORD, HWND window, LONG object, LONG child, DWORD, DWORD)
+{
+    if (g_hideFromCapture && window && object == OBJID_WINDOW && child == CHILDID_SELF)
+    {
+        ApplyCaptureSetting(window);
+    }
+}
+} // namespace
+#endif
+
+void HideFromScreenCapture(bool hide)
+{
+#ifdef __WXMSW__
+    if (hide == g_hideFromCapture)
+    {
+        return;
+    }
+    g_hideFromCapture = hide;
+    if (hide && !g_shownHook)
+    {
+        // Windows that open later (message boxes, menus) as they appear.
+        g_shownHook = ::SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW, nullptr, OnWindowShown,
+                                        ::GetCurrentProcessId(), 0, WINEVENT_OUTOFCONTEXT);
+    }
+    else if (!hide && g_shownHook)
+    {
+        ::UnhookWinEvent(g_shownHook);
+        g_shownHook = nullptr;
+    }
+    ::EnumWindows(ApplyCaptureSettingTo, 0);
+#else
+    wxUnusedVar(hide);
+#endif
+}
