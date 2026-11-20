@@ -93,10 +93,18 @@ bool ClientContext::Init()
         return false;
     }
 
-    IClientRemoteClientManager* pRemoteManager =
-        (IClientRemoteClientManager*)m_pClientEngine->GetIClientRemoteClientManager(m_hPipe);
-    if (!pRemoteManager)
+    // IClientEngine's methods carry no names in Steam's code (checked with Steam
+    // 1794536281), so the Remote Play manager is still fetched by position:
+    // GetIClientRemoteClientManager(pipe) is slot 56 in OpenSteamworks'
+    // declaration. The call is guarded (see clientvt::CallPipeGetterAt), so if
+    // Steam ever reorders the engine this fails as "Steam changed its
+    // functions" (and the app offers an update) instead of crashing.
+    static const int kRemoteClientManagerSlot = 56;
+    void* pRemoteManager = NULL;
+    if (!clientvt::CallPipeGetterAt(m_pClientEngine, kRemoteClientManagerSlot, m_hPipe, &pRemoteManager))
     {
+        clientvt::Log("[vt] Init: IClientEngine slot %d didn't give the Remote Play manager\n",
+                      kRemoteClientManagerSlot);
         return false;
     }
 
