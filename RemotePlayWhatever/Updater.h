@@ -43,6 +43,9 @@ public:
     static long CurrentBuild();
     // The releases page, for downloading by hand.
     static wxString ReleasesPage();
+    // The project on GitHub this build comes from (the original project for
+    // local builds, which don't know).
+    static wxString ProjectPage();
 
     // "Check for updates automatically" (saved setting, on by default).
     static bool AutoChecksEnabled();

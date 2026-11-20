@@ -22,6 +22,25 @@ static const int kHotKeyGuestLink = 0xB010;
 // Saved setting: whether the friends list shows the friends who are offline.
 static const char* const kShowOfflineKey = "/Options/ShowOfflineFriends";
 
+// Menu bar commands (Exit and About have the standard ids).
+enum
+{
+    idMenuHideToTray = wxID_HIGHEST + 600,
+    idMenuGuestLink,
+    idMenuControls,
+    idMenuEndSession,
+    idMenuThemeAuto,
+    idMenuThemeLight,
+    idMenuThemeDark,
+    idMenuShowOffline,
+    idMenuSounds,
+    idMenuStartWithWindows,
+    idMenuAutoUpdates,
+    idMenuCheckUpdates,
+    idMenuReleaseNotes,
+    idMenuProjectPage,
+};
+
 static CSteamID GuestLinkInvitee()
 {
     return CSteamID(0, k_EUniversePublic, k_EAccountTypeIndividual);
@@ -100,6 +119,7 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     SetIcons(AppIcons());
     wxConfigBase* config = wxConfigBase::Get();
     m_showOffline = config && config->ReadBool(kShowOfflineKey, false);
+    BuildMenuBar();
 
 #if wxUSE_HOTKEY
     // Ctrl+Alt+L copies a guest link without leaving the game (OnGuestLinkHotKey).
@@ -108,13 +128,25 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     m_guestLinkKeyUsable = CtrlAltKeyIsFree('L');
     Bind(wxEVT_HOTKEY, [this](wxKeyEvent& event)
     {
-        if (event.GetId() == kHotKeyGuestLink)
+        if (event.GetId() != kHotKeyGuestLink)
         {
-            OnGuestLinkHotKey();
+            event.Skip();
+            return;
+        }
+        // Pressed in this window, it's the shortcut Session > guest link
+        // shows, so it does the same; from inside a game, OnGuestLinkHotKey.
+#ifdef __WXMSW__
+        const bool inThisWindow = ::GetForegroundWindow() == GetHWND();
+#else
+        const bool inThisWindow = IsActive();
+#endif
+        if (inThisWindow)
+        {
+            OnLinkButton();
         }
         else
         {
-            event.Skip();
+            OnGuestLinkHotKey();
         }
     });
 #endif
@@ -175,6 +207,193 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     m_updater = new AppUpdater([this]() { OnUpdaterChange(); },
                                [this]() { return !m_pRemoteInvite->IsSessionActive(); });
     m_updater->StartAutomaticChecks();
+    RefreshMenus();
+}
+
+void FriendsListFrame::BuildMenuBar()
+{
+    // Menus at the top left like most Windows apps; the tray menu has the
+    // same options for when the window is hidden.
+    wxMenu* file = new wxMenu;
+    file->Append(idMenuHideToTray, "&Hide to tray");
+    file->AppendSeparator();
+    file->Append(wxID_EXIT, "E&xit");
+
+    wxMenu* session = new wxMenu;
+    session->Append(idMenuGuestLink, "&Create guest link");
+    session->Append(idMenuControls, "Show &guest controls");
+    session->AppendSeparator();
+    session->Append(idMenuEndSession, "&End session");
+
+    wxMenu* theme = new wxMenu;
+    theme->AppendRadioItem(idMenuThemeAuto, "&Match Windows");
+    theme->AppendRadioItem(idMenuThemeLight, "&Light");
+    theme->AppendRadioItem(idMenuThemeDark, "&Dark");
+    wxMenu* options = new wxMenu;
+    options->AppendSubMenu(theme, "&Theme");
+    options->AppendCheckItem(idMenuShowOffline, "Show &offline friends");
+    options->AppendCheckItem(idMenuSounds, "&Sounds when guests join or leave");
+#ifdef __WXMSW__
+    options->AppendCheckItem(idMenuStartWithWindows, "Start with &Windows");
+#endif
+    if (AppUpdater::Supported())
+    {
+        options->AppendSeparator();
+        options->AppendCheckItem(idMenuAutoUpdates, "Check for updates &automatically");
+    }
+
+    wxMenu* help = new wxMenu;
+    if (AppUpdater::Supported())
+    {
+        help->Append(idMenuCheckUpdates, wxString::Format("Check for &updates (you have build %ld)", AppUpdater::CurrentBuild()));
+    }
+    help->Append(idMenuReleaseNotes, "&Release notes");
+    help->Append(idMenuProjectPage, "Remote Play Whatever on &GitHub");
+    help->AppendSeparator();
+    help->Append(wxID_ABOUT, "&About Remote Play Whatever");
+
+    wxMenuBar* bar = new wxMenuBar;
+    bar->Append(file, "&File");
+    bar->Append(session, "&Session");
+    bar->Append(options, "&Options");
+    bar->Append(help, "&Help");
+    SetMenuBar(bar);
+
+    Bind(wxEVT_MENU_OPEN, [this](wxMenuEvent& event)
+    {
+        RefreshMenus();
+        event.Skip();
+    });
+    Bind(wxEVT_MENU, [this](wxCommandEvent&)
+    {
+        // Where the minimize button puts it (OnIconize).
+        if (m_tray && m_tray->IsIconInstalled())
+        {
+            Iconize(true);
+        }
+    }, idMenuHideToTray);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) { Close(true); }, wxID_EXIT);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) { OnLinkButton(); }, idMenuGuestLink);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) { ShowGuestControls(); }, idMenuControls);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&)
+    {
+        if (m_pRemoteInvite->IsSessionActive())
+        {
+            ConfirmEndSession();
+        }
+    }, idMenuEndSession);
+    // The settings are switched from what they are (the tray menu may have
+    // changed one since this menu was last open), then the ticks follow.
+    Bind(wxEVT_MENU, [this](wxCommandEvent& event)
+    {
+        SaveThemeChoice(event.GetId() == idMenuThemeLight ? ThemeLight :
+                        event.GetId() == idMenuThemeDark ? ThemeDark : ThemeAuto);
+        ApplySavedTheme();
+        RefreshMenus();
+    }, idMenuThemeAuto, idMenuThemeDark);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) { SetShowOffline(!m_showOffline); }, idMenuShowOffline);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&)
+    {
+        SetSoundsEnabled(!SoundsEnabled());
+        RefreshMenus();
+    }, idMenuSounds);
+#ifdef __WXMSW__
+    Bind(wxEVT_MENU, [this](wxCommandEvent&)
+    {
+        SetStartWithWindows(!StartsWithWindows());
+        RefreshMenus();
+    }, idMenuStartWithWindows);
+#endif
+    Bind(wxEVT_MENU, [this](wxCommandEvent&)
+    {
+        AppUpdater::SetAutoChecksEnabled(!AppUpdater::AutoChecksEnabled());
+        RefreshMenus();
+    }, idMenuAutoUpdates);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) { CheckForUpdates(); }, idMenuCheckUpdates);
+    Bind(wxEVT_MENU, [](wxCommandEvent&) { wxLaunchDefaultBrowser(AppUpdater::ReleasesPage()); }, idMenuReleaseNotes);
+    Bind(wxEVT_MENU, [](wxCommandEvent&) { wxLaunchDefaultBrowser(AppUpdater::ProjectPage()); }, idMenuProjectPage);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) { ShowAbout(); }, wxID_ABOUT);
+}
+
+void FriendsListFrame::RefreshMenus()
+{
+    wxMenuBar* bar = GetMenuBar();
+    if (!bar)
+    {
+        return;
+    }
+    // The same choice as the link button: create a link, copy the unused one
+    // again, or make another.
+    const bool session = m_pRemoteInvite->IsSessionActive();
+    wxString link = !session ? "&Create guest link" :
+                    !m_pRemoteInvite->GuestLink().empty() ? "&Copy guest link" : "&New guest link";
+    if (m_guestLinkKeyUsable)
+    {
+        link += "\tCtrl+Alt+L";
+    }
+    wxMenuItem* linkItem = bar->FindItem(idMenuGuestLink);
+    if (linkItem && linkItem->GetItemLabel() != link)
+    {
+        linkItem->SetItemLabel(link);
+    }
+    bar->Enable(idMenuGuestLink, m_linkRequestedAt == 0);
+    bar->Enable(idMenuEndSession, session);
+    bar->Enable(idMenuHideToTray, m_tray && m_tray->IsIconInstalled());
+
+    const ThemeChoice theme = LoadThemeChoice();
+    bar->Check(theme == ThemeLight ? idMenuThemeLight : theme == ThemeDark ? idMenuThemeDark : idMenuThemeAuto, true);
+    bar->Check(idMenuShowOffline, m_showOffline);
+    bar->Check(idMenuSounds, SoundsEnabled());
+#ifdef __WXMSW__
+    bar->Check(idMenuStartWithWindows, StartsWithWindows());
+#endif
+    if (bar->FindItem(idMenuAutoUpdates))
+    {
+        bar->Check(idMenuAutoUpdates, AppUpdater::AutoChecksEnabled());
+    }
+    if (bar->FindItem(idMenuCheckUpdates))
+    {
+        bar->Enable(idMenuCheckUpdates, !(m_updater && m_updater->Busy()));
+    }
+}
+
+void FriendsListFrame::ShowGuestControls()
+{
+    for (wxWindowList::compatibility_iterator node = wxTopLevelWindows.GetFirst(); node; node = node->GetNext())
+    {
+        ControlFrame* controls = dynamic_cast<ControlFrame*>(node->GetData());
+        if (controls)
+        {
+            controls->Show();
+            controls->Raise();
+            return;
+        }
+    }
+}
+
+void FriendsListFrame::ShowAbout()
+{
+    const long build = AppUpdater::CurrentBuild();
+    wxMessageDialog about(this,
+                          build > 0 ? wxString::Format("Remote Play Whatever, build %ld", build)
+                                    : wxString("Remote Play Whatever (a local build)"),
+                          "About Remote Play Whatever", wxOK | wxICON_INFORMATION);
+    about.SetExtendedMessage("Steam Remote Play Together for any game.\n\n" + AppUpdater::ProjectPage() +
+                             "\nBased on RemotePlayWhatever by m4dEngi (MIT License).");
+    about.ShowModal();
+}
+
+void FriendsListFrame::SetShowOffline(bool show)
+{
+    m_showOffline = show;
+    wxConfigBase* config = wxConfigBase::Get();
+    if (config)
+    {
+        config->Write(kShowOfflineKey, m_showOffline);
+        config->Flush();
+    }
+    ApplyFilter();
+    RefreshMenus();
 }
 
 void FriendsListFrame::UpdateColumns()
@@ -347,17 +566,7 @@ void FriendsListFrame::BuildFriendsList(wxSizer* sizer)
     m_onlineSizer = new wxBoxSizer(wxVERTICAL);
     m_friendsListSizer->Add(m_onlineSizer, 0, wxEXPAND);
     m_offlineHeader = AddSectionHeader(&m_offlineLabel, &m_offlineToggle);
-    m_offlineToggle->Bind(wxEVT_BUTTON, [this](wxCommandEvent&)
-    {
-        m_showOffline = !m_showOffline;
-        wxConfigBase* config = wxConfigBase::Get();
-        if (config)
-        {
-            config->Write(kShowOfflineKey, m_showOffline);
-            config->Flush();
-        }
-        ApplyFilter();
-    });
+    m_offlineToggle->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { SetShowOffline(!m_showOffline); });
     m_offlineSizer = new wxBoxSizer(wxVERTICAL);
     m_friendsListSizer->Add(m_offlineSizer, 0, wxEXPAND);
 
@@ -452,6 +661,8 @@ void FriendsListFrame::SetTray(RpwTrayIcon* tray)
     {
         m_tray->SetStatus(m_trayShown);
     }
+    // File > Hide to tray needs the icon.
+    RefreshMenus();
 }
 
 #ifdef __WXMSW__
@@ -468,7 +679,17 @@ WXLRESULT FriendsListFrame::MSWWindowProc(WXUINT msg, WXWPARAM wParam, WXLPARAM 
     {
         CallAfter([]() { ApplySavedTheme(); });
     }
-    return wxFrame::MSWWindowProc(msg, wParam, lParam);
+    WXLRESULT result = 0;
+    if (Ui::MenuBarMessage(GetHWND(), msg, wParam, lParam, &result))
+    {
+        return result;
+    }
+    result = wxFrame::MSWWindowProc(msg, wParam, lParam);
+    if (msg == WM_NCPAINT || msg == WM_NCACTIVATE)
+    {
+        Ui::MenuBarLine(GetHWND());
+    }
+    return result;
 }
 #endif
 

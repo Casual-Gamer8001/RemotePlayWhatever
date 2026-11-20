@@ -14,11 +14,12 @@ class SearchBox;
 class StatusDot;
 class WrapLabel;
 
-// The main window: an update bar when there's a new version, a card for the
-// game being shared (its picture, what's shared, the guest link and session
-// buttons, invites nobody has used yet, short messages), then the searchable
-// friends list with an Invite button per friend. When the window is wide the
-// card and the friends list sit side by side.
+// The main window: a menu bar (File, Session, Options, Help), an update bar
+// when there's a new version, a card for the game being shared (its picture,
+// what's shared, the guest link and session buttons, invites nobody has used
+// yet, short messages), then the searchable friends list with an Invite button
+// per friend. When the window is wide the card and the friends list sit side
+// by side.
 class FriendsListFrame : public wxFrame
 {
 public:
@@ -55,11 +56,21 @@ public:
 
 #ifdef __WXMSW__
     // A second copy of the app asks this one to show itself with a registered
-    // window message (it may be hidden in the tray).
+    // window message (it may be hidden in the tray). The menu bar is drawn
+    // dark here in dark mode.
     virtual WXLRESULT MSWWindowProc(WXUINT msg, WXWPARAM wParam, WXLPARAM lParam) override;
 #endif
 
 private:
+    // The menu bar has the tray menu's options too; ticks, labels and greyed
+    // items are brought up to date whenever one of its menus opens.
+    void BuildMenuBar();
+    void RefreshMenus();
+    void ShowGuestControls();
+    void ShowAbout();
+    // Show or fold away the friends who appear offline (saved).
+    void SetShowOffline(bool show);
+
     void BuildUpdateBar(wxSizer* sizer);
     void BuildSessionCard(wxSizer* sizer);
     void BuildFriendsList(wxSizer* sizer);

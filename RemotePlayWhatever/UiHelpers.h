@@ -45,8 +45,8 @@ void RefreshStartWithWindows();
 // that character in every app. Checks every keyboard layout the user has.
 bool CtrlAltKeyIsFree(int key);
 
-// Light or dark: follow Windows (the default), or always one of them (tray
-// menu > Theme). Saved as Options\Theme = auto / light / dark.
+// Light or dark: follow Windows (the default), or always one of them (Options
+// > Theme, or the tray menu). Saved as Options\Theme = auto / light / dark.
 enum ThemeChoice
 {
     ThemeAuto,
