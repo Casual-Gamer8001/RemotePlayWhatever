@@ -9,16 +9,26 @@
 class wxSearchCtrl;
 class RpwTrayIcon;
 class AppUpdater;
+class Card;
+class FlatButton;
+class StatusDot;
+class WrapLabel;
 
-enum ERPWEvtID
-{
-    rpwID_INVITE_GUEST,
-    rpwID_INVITE_FRIEND,
-};
-
+// The main window: an update bar when there's a new version, a card for the
+// game being shared (its picture, what's shared, the guest link and session
+// buttons, invites nobody has used yet, short messages), then the searchable
+// friends list with an Invite button per friend.
 class FriendsListFrame : public wxFrame
 {
 public:
+    // How a short message in the session card looks.
+    enum NoticeKind
+    {
+        NoticeInfo,
+        NoticeSuccess,
+        NoticeWarning,
+    };
+
     FriendsListFrame(RemotePlayInviteHandler* handler);
 
     // Tray icon support: minimizing hides the window to the tray.
@@ -34,8 +44,9 @@ public:
     void CheckForUpdates();
     void StartUpdate();
 
-    // A short message in the status line, e.g. after an update.
-    void ShowNotice(const wxString& text);
+    // A short message in the session card (e.g. after an update); it goes
+    // away by itself after a few seconds.
+    void ShowNotice(const wxString& text, NoticeKind kind = NoticeSuccess);
 
     // Ctrl+Alt+L (copy or create a guest link from inside a game) can be
     // used with this keyboard layout; it's held while a game or session runs.
@@ -48,41 +59,82 @@ public:
 #endif
 
 private:
+    void BuildUpdateBar(wxSizer* sizer);
+    void BuildSessionCard(wxSizer* sizer);
+    void BuildFriendsList(wxSizer* sizer);
+    // A section title in the friends list ("ONLINE (4)"), optionally with a
+    // Show/Hide link.
+    wxWindow* AddSectionHeader(wxStaticText** label, FlatButton** toggle);
+
     void AddFreiendPanel(CSteamID friendID);
     void RemoveFriendPanel(CSteamID friendID);
-    // Online friends first, then offline ones, each sorted by name.
+    // Played with recently first, then online friends, then offline ones.
     void ArrangeFriendPanels();
+    void ApplyFilter();
+    // Each friend's Invite button: ready, no game, sending, sent or joined.
+    void RefreshInviteStates(bool canInvite);
 
-    bool ShowNonSteamWarning();
-    bool CanSendInvite();
+    // Before an invite: is a game running (the card says so if not), and, for
+    // a non-Steam game, is sharing the whole screen OK (asked once a session).
+    bool ReadyToInvite();
+    bool ConfirmScreenSharing();
+    void InviteFriend(CSteamID invitee);
+    void CreateGuestLink();
 
     RemotePlayInviteHandler* m_pRemoteInvite;
+    wxPanel* m_body;
+
+    // Update bar.
+    Card* m_updateCard;
+    wxStaticText* m_updateTitle;
+    WrapLabel* m_updateNotes;
+    FlatButton* m_updateButton;
+
+    // Session card.
+    Card* m_gameCard;
+    StatusDot* m_stateDot;
+    wxStaticText* m_stateText;
+    WrapLabel* m_stateDetail;
+    FlatButton* m_linkButton;
+    FlatButton* m_endButton;
+    wxBoxSizer* m_waitingSizer;
+    wxString m_waitingShown;
+    Card* m_noticeCard;
+    wxStaticText* m_noticeIcon;
+    WrapLabel* m_noticeText;
+
+    // Friends list.
+    wxSearchCtrl* m_search;
     wxScrolledWindow* m_friendsListContainer;
     wxBoxSizer* m_friendsListSizer;
-    wxBoxSizer* m_recentSizer;
-    wxBoxSizer* m_onlineSizer;
-    wxBoxSizer* m_offlineSizer;
+    wxWindow* m_recentHeader;
+    wxWindow* m_onlineHeader;
+    wxWindow* m_offlineHeader;
     wxStaticText* m_recentLabel;
     wxStaticText* m_onlineLabel;
     wxStaticText* m_offlineLabel;
+    FlatButton* m_offlineToggle;
+    wxStaticText* m_noMatches;
+    wxBoxSizer* m_recentSizer;
+    wxBoxSizer* m_onlineSizer;
+    wxBoxSizer* m_offlineSizer;
+    bool m_showOffline;
 
     std::map<uint64, FriendPanel*> m_friendPanels;
     // "Played with recently": when friends last joined, and who's shown there.
     std::map<uint64, long> m_joinTimes;
     std::set<uint64> m_recentIDs;
+    // Friends whose invite is on its way to Steam, and since when.
+    std::map<uint64, wxLongLong> m_sending;
 
-    void OnFriendPanelClick(wxCommandEvent& event);
-    void ConfirmFriendInvite(CSteamID invitee, const wxString& name, bool online);
-    void OnGuestPanelClick(wxCommandEvent& event);
+    void OnFriendInvite(wxCommandEvent& event);
+    void OnLinkButton();
     void OnTick(wxTimerEvent& event);
     void OnClose(wxCloseEvent& event);
     void OnIconize(wxIconizeEvent& event);
-    void OnEndSession(wxCommandEvent& event);
-    void OnCopyLink(wxCommandEvent& event);
     void UpdateStatus();
     // Rows for invites nobody has used yet; true if they changed.
     bool RefreshWaitingInvites();
-    void ApplyFilter();
     void OnUpdaterChange();
     void RefreshUpdateButton();
     void OnGuestLinkHotKey();
@@ -92,20 +144,16 @@ private:
     void Announce(const wxString& title, const wxString& text, bool ok = true);
 
     RpwTrayIcon* m_tray;
-    wxSearchCtrl* m_search;
-    wxPanel* m_statusPanel;
-    wxStaticText* m_status;
-    wxButton* m_copyLinkButton;
-    wxButton* m_endButton;
-    wxBoxSizer* m_waitingSizer;
-    wxString m_waitingShown;
-    wxButton* m_updateButton;
-    wxStaticText* m_updateNotes;
     AppUpdater* m_updater;
-    wxString m_statusShown;
+    wxString m_trayShown;
     wxString m_notice;
+    NoticeKind m_noticeKind;
+    wxString m_noticeShown;
+    NoticeKind m_noticeKindShown;
     wxLongLong m_noticeUntil;
     wxLongLong m_copiedUntil;
+    unsigned long long m_bannerGame;    // the game whose picture is shown (CGameID, 0 = none)
+    wxLongLong m_linkRequestedAt;       // when the window asked Steam for a guest link (0 = not waiting)
     wxTimer m_tick;
     int m_statusRefreshTicks;
     bool m_askingGroupFallback;

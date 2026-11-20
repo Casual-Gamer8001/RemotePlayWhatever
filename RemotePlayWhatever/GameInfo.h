@@ -20,4 +20,9 @@ wxString GetGameName(CGameID game, uint32 accountID);
 // non-Steam game, or Steam has no details yet; asked again a minute later).
 wxString GetFriendGameName(CGameID game);
 
+// A wide picture of a game for the top of the main window: the library banner
+// from Steam's cache (Steam games), or artwork the user set for a non-Steam
+// game in Steam. Empty if there's none.
+wxString GetGameArtworkPath(CGameID game, uint32 accountID);
+
 #endif // GAMEINFO_H

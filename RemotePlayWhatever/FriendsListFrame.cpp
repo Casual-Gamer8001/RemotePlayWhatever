@@ -1,5 +1,6 @@
 #include <wx/wx.h>
 #include <wx/clipbrd.h>
+#include <wx/config.h>
 #include <wx/srchctrl.h>
 #include <wx/time.h>
 #include <algorithm>
@@ -15,32 +16,71 @@
 #include "GameInfo.h"
 #include "TrayIcon.h"
 #include "UiHelpers.h"
+#include "UiWidgets.h"
 
-static const wxColour kReadyGreen(30, 130, 50);
-static const wxColour kNoticeOrange(190, 100, 0);
 // Hotkey id for Ctrl+Alt+L (the control window's ids start at 0xB001).
 static const int kHotKeyGuestLink = 0xB010;
+// Saved setting: whether the friends list shows the friends who are offline.
+static const char* const kShowOfflineKey = "/Options/ShowOfflineFriends";
+
+static CSteamID GuestLinkInvitee()
+{
+    return CSteamID(0, k_EUniversePublic, k_EAccountTypeIndividual);
+}
+
+// A game's picture, or an invalid image if there's none (or it won't load).
+static wxImage LoadArtwork(const wxString& path)
+{
+    wxImage image;
+    if (!path.empty())
+    {
+        wxLogNull quiet;
+        image.LoadFile(path);
+    }
+    return image;
+}
 
 FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
-    wxFrame(NULL, wxID_ANY, _("Remote Play Whatever"), wxPoint(50, 50), wxSize(275, 650)),
-    m_recentSizer(nullptr),
-    m_onlineSizer(nullptr),
-    m_offlineSizer(nullptr),
+    wxFrame(NULL, wxID_ANY, _("Remote Play Whatever"), wxPoint(50, 50), wxDefaultSize),
+    m_pRemoteInvite(handler),
+    m_body(nullptr),
+    m_updateCard(nullptr),
+    m_updateTitle(nullptr),
+    m_updateNotes(nullptr),
+    m_updateButton(nullptr),
+    m_gameCard(nullptr),
+    m_stateDot(nullptr),
+    m_stateText(nullptr),
+    m_stateDetail(nullptr),
+    m_linkButton(nullptr),
+    m_endButton(nullptr),
+    m_waitingSizer(nullptr),
+    m_noticeCard(nullptr),
+    m_noticeIcon(nullptr),
+    m_noticeText(nullptr),
+    m_search(nullptr),
+    m_friendsListContainer(nullptr),
+    m_friendsListSizer(nullptr),
+    m_recentHeader(nullptr),
+    m_onlineHeader(nullptr),
+    m_offlineHeader(nullptr),
     m_recentLabel(nullptr),
     m_onlineLabel(nullptr),
     m_offlineLabel(nullptr),
+    m_offlineToggle(nullptr),
+    m_noMatches(nullptr),
+    m_recentSizer(nullptr),
+    m_onlineSizer(nullptr),
+    m_offlineSizer(nullptr),
+    m_showOffline(false),
     m_tray(nullptr),
-    m_search(nullptr),
-    m_statusPanel(nullptr),
-    m_status(nullptr),
-    m_copyLinkButton(nullptr),
-    m_endButton(nullptr),
-    m_waitingSizer(nullptr),
-    m_updateButton(nullptr),
-    m_updateNotes(nullptr),
     m_updater(nullptr),
+    m_noticeKind(NoticeInfo),
+    m_noticeKindShown(NoticeInfo),
     m_noticeUntil(0),
     m_copiedUntil(0),
+    m_bannerGame(0),
+    m_linkRequestedAt(0),
     m_tick(this),
     m_statusRefreshTicks(0),
     m_askingGroupFallback(false),
@@ -53,13 +93,9 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     m_remoteInviteResultCb(this, &FriendsListFrame::OnRemotePlayInviteResult),
     m_personaStateCb(this, &FriendsListFrame::OnPersonaStateChange)
 {
-    SetSizeHints( wxDefaultSize, wxDefaultSize );
-
-    SetMinSize(wxSize(275, 300));
-    SetMaxSize(wxSize(350, -1));
     SetIcons(AppIcons());
-
-    m_pRemoteInvite = handler;
+    wxConfigBase* config = wxConfigBase::Get();
+    m_showOffline = config && config->ReadBool(kShowOfflineKey, false);
 
 #if wxUSE_HOTKEY
     // Ctrl+Alt+L copies a guest link without leaving the game (OnGuestLinkHotKey).
@@ -79,105 +115,33 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     });
 #endif
 
-    wxBoxSizer* frameSizer = new wxBoxSizer( wxVERTICAL );
+    m_body = new wxPanel(this, wxID_ANY);
+    m_body->SetBackgroundColour(Ui::kWindow);
+    wxBoxSizer* bodySizer = new wxBoxSizer(wxVERTICAL);
+    BuildUpdateBar(bodySizer);
+    BuildSessionCard(bodySizer);
 
-    // What will be shared, so it's clear before inviting anyone.
-    wxPanel* statusPanel = new wxPanel(this, wxID_ANY);
-    m_statusPanel = statusPanel;
-    statusPanel->SetBackgroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW));
-    wxBoxSizer* statusSizer = new wxBoxSizer(wxVERTICAL);
-    m_status = new wxStaticText(statusPanel, wxID_ANY, wxEmptyString);
-    m_status->SetFont(m_status->GetFont().Bold());
-    statusSizer->Add(m_status, 0, wxALL | wxEXPAND, 10);
-    wxBoxSizer* sessionButtons = new wxBoxSizer(wxHORIZONTAL);
-    m_copyLinkButton = new wxButton(statusPanel, wxID_ANY, "Copy guest link");
-    m_copyLinkButton->SetToolTip("Copy this session's guest link again.");
-    m_copyLinkButton->Bind(wxEVT_BUTTON, &FriendsListFrame::OnCopyLink, this);
-    m_copyLinkButton->Hide();
-    sessionButtons->Add(m_copyLinkButton, 1, wxRIGHT, 6);
-    m_endButton = new wxButton(statusPanel, wxID_ANY, "End session");
-    m_endButton->SetToolTip("Disconnect everyone, cancel unused invites and guest links, and stop sharing your screen.");
-    m_endButton->Bind(wxEVT_BUTTON, &FriendsListFrame::OnEndSession, this);
-    m_endButton->Hide();
-    sessionButtons->Add(m_endButton, 1);
-    statusSizer->Add(sessionButtons, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 10);
-    // Invites nobody has used yet, each with a Cancel button (RefreshWaitingInvites).
-    m_waitingSizer = new wxBoxSizer(wxVERTICAL);
-    statusSizer->Add(m_waitingSizer, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 10);
-    m_updateButton = new wxButton(statusPanel, wxID_ANY, "Update");
-    m_updateButton->SetToolTip("Download the new version from GitHub and restart Remote Play Whatever with it.");
-    m_updateButton->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { StartUpdate(); });
-    m_updateButton->Hide();
-    statusSizer->Add(m_updateButton, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 10);
-    // What's new in that version, in small grey text under the button.
-    m_updateNotes = new wxStaticText(statusPanel, wxID_ANY, wxEmptyString);
-    m_updateNotes->SetFont(m_updateNotes->GetFont().Smaller());
-    m_updateNotes->SetForegroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_GRAYTEXT));
-    m_updateNotes->Hide();
-    statusSizer->Add(m_updateNotes, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 10);
-    statusPanel->SetSizer(statusSizer);
-    frameSizer->Add(statusPanel, 0, wxEXPAND | wxBOTTOM, 1);
-
-    m_friendsListContainer = new wxScrolledWindow( this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxVSCROLL );
-    m_friendsListContainer->SetScrollRate( 5, 5 );
-    m_friendsListSizer = new wxBoxSizer( wxVERTICAL );
-
-    BtnPanel* guestBtn = new BtnPanel(m_friendsListContainer, rpwID_INVITE_GUEST, "Create guest invite link");
-    if (m_guestLinkKeyUsable)
-    {
-        guestBtn->SetToolTip("A link anyone can use to join. While you're in the game, Ctrl+Alt+L copies one too.");
-    }
-    m_friendsListSizer->Add(guestBtn, 0, wxALL | wxEXPAND, 0);
-
-    wxStaticText* flLabel = new wxStaticText(m_friendsListContainer, wxID_ANY, "or invite a friend", wxDefaultPosition, wxDefaultSize, wxALIGN_CENTER_HORIZONTAL);
-    m_friendsListSizer->Add(flLabel, 0, wxALL | wxEXPAND, 10);
-
-    m_search = new wxSearchCtrl(m_friendsListContainer, wxID_ANY);
-    m_search->SetDescriptiveText("Search friends");
+    m_search = new wxSearchCtrl(m_body, wxID_ANY);
+    m_search->SetDescriptiveText("Search friends or games");
     m_search->ShowCancelButton(true);
-    m_friendsListSizer->Add(m_search, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 8);
+    bodySizer->Add(m_search, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, FromDIP(10));
     m_search->Bind(wxEVT_TEXT, [this](wxCommandEvent&) { ApplyFilter(); });
     m_search->Bind(wxEVT_SEARCHCTRL_CANCEL_BTN, [this](wxCommandEvent&) { m_search->Clear(); ApplyFilter(); });
 
-    // Friends who've joined before, then online friends, then the ones who
-    // appear offline (they may just be invisible, and an invite link reaches
-    // them in Steam chat anyway).
-    wxColour headerColour = wxSystemSettings::GetColour(wxSYS_COLOUR_GRAYTEXT);
-    m_recentLabel = new wxStaticText(m_friendsListContainer, wxID_ANY, "Played with recently");
-    m_recentLabel->SetForegroundColour(headerColour);
-    m_friendsListSizer->Add(m_recentLabel, 0, wxLEFT | wxRIGHT | wxBOTTOM, 8);
-    m_recentSizer = new wxBoxSizer(wxVERTICAL);
-    m_friendsListSizer->Add(m_recentSizer, 0, wxEXPAND | wxBOTTOM, 8);
-    m_onlineLabel = new wxStaticText(m_friendsListContainer, wxID_ANY, "Online");
-    m_onlineLabel->SetForegroundColour(headerColour);
-    m_friendsListSizer->Add(m_onlineLabel, 0, wxLEFT | wxRIGHT | wxBOTTOM, 8);
-    m_onlineSizer = new wxBoxSizer(wxVERTICAL);
-    m_friendsListSizer->Add(m_onlineSizer, 0, wxEXPAND);
-    m_offlineLabel = new wxStaticText(m_friendsListContainer, wxID_ANY, "Offline");
-    m_offlineLabel->SetForegroundColour(headerColour);
-    m_friendsListSizer->Add(m_offlineLabel, 0, wxLEFT | wxRIGHT | wxTOP | wxBOTTOM, 8);
-    m_offlineSizer = new wxBoxSizer(wxVERTICAL);
-    m_friendsListSizer->Add(m_offlineSizer, 0, wxEXPAND);
+    BuildFriendsList(bodySizer);
+    m_body->SetSizer(bodySizer);
+    // The search box gets the focus first (as before), so typing a name
+    // filters the list straight away; Tab then goes on to the buttons.
+    m_search->MoveBeforeInTabOrder(m_updateCard);
 
-    m_joinTimes = LoadGuestJoinTimes();
-    m_rosterSeen = m_pRemoteInvite->RosterRevision();
-    int cFriends = GClientContext()->SteamFriends()->GetFriendCount(k_EFriendFlagImmediate);
-    for(int i = 0; i < cFriends; ++i)
-    {
-        AddFreiendPanel(GClientContext()->SteamFriends()->GetFriendByIndex(i, k_EFriendFlagImmediate));
-    }
-
-    m_friendsListContainer->SetSizer( m_friendsListSizer );
-    ArrangeFriendPanels();
-    m_friendsListContainer->Layout();
-    m_friendsListSizer->Fit( m_friendsListContainer );
-    frameSizer->Add( m_friendsListContainer, 1, wxEXPAND | wxALL, 0 );
-
-    SetSizer( frameSizer );
+    wxBoxSizer* frameSizer = new wxBoxSizer(wxVERTICAL);
+    frameSizer->Add(m_body, 1, wxEXPAND);
+    SetSizer(frameSizer);
+    SetMinSize(FromDIP(wxSize(300, 440)));
+    SetSize(FromDIP(wxSize(340, 690)));
     Layout();
 
-    Bind(BTN_PANEL_LEFT_CLICK, &FriendsListFrame::OnFriendPanelClick, this, rpwID_INVITE_FRIEND);
-    Bind(BTN_PANEL_LEFT_CLICK, &FriendsListFrame::OnGuestPanelClick, this, rpwID_INVITE_GUEST);
+    Bind(EVT_FRIEND_INVITE, &FriendsListFrame::OnFriendInvite, this);
     Bind(wxEVT_TIMER, &FriendsListFrame::OnTick, this);
     Bind(wxEVT_CLOSE_WINDOW, &FriendsListFrame::OnClose, this);
     Bind(wxEVT_ICONIZE, &FriendsListFrame::OnIconize, this);
@@ -189,6 +153,176 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     m_updater = new AppUpdater([this]() { OnUpdaterChange(); },
                                [this]() { return !m_pRemoteInvite->IsSessionActive(); });
     m_updater->StartAutomaticChecks();
+}
+
+void FriendsListFrame::BuildUpdateBar(wxSizer* sizer)
+{
+    m_updateCard = new Card(m_body, Ui::kInfoBg, Ui::kInfoBorder);
+    wxBoxSizer* row = new wxBoxSizer(wxHORIZONTAL);
+    if (Ui::HasIconFont())
+    {
+        wxStaticText* icon = new wxStaticText(m_updateCard, wxID_ANY, wxString(Ui::kGlyphDownload));
+        icon->SetFont(Ui::IconFont(GetFont()).Scaled(1.25f));
+        icon->SetForegroundColour(Ui::kAccent);
+        row->Add(icon, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(10));
+    }
+    wxBoxSizer* text = new wxBoxSizer(wxVERTICAL);
+    m_updateTitle = new wxStaticText(m_updateCard, wxID_ANY, wxEmptyString);
+    m_updateTitle->SetFont(Ui::SemiBold(GetFont()));
+    m_updateTitle->SetForegroundColour(Ui::kText);
+    text->Add(m_updateTitle, 0, wxEXPAND);
+    // What's new in that version, in small grey text (all of it in the button's tooltip).
+    m_updateNotes = new WrapLabel(m_updateCard);
+    m_updateNotes->SetFont(GetFont().Scaled(0.92f));
+    m_updateNotes->SetForegroundColour(Ui::kTextSecondary);
+    text->Add(m_updateNotes, 0, wxEXPAND | wxTOP, FromDIP(2));
+    row->Add(text, 1, wxALIGN_CENTER_VERTICAL);
+    m_updateButton = new FlatButton(m_updateCard, "Update", FlatButton::Primary, 0, true);
+    m_updateButton->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { StartUpdate(); });
+    row->Add(m_updateButton, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(10));
+    m_updateCard->Content()->Add(row, 0, wxEXPAND | wxALL, FromDIP(10));
+    sizer->Add(m_updateCard, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(10));
+    m_updateCard->Hide();
+}
+
+void FriendsListFrame::BuildSessionCard(wxSizer* sizer)
+{
+    // The game's picture and name across the top (when a game is running),
+    // then what's shared, the buttons, waiting invites and short messages.
+    m_gameCard = new Card(m_body);
+    wxBoxSizer* content = m_gameCard->Content();
+    const int pad = FromDIP(12);
+
+    wxBoxSizer* stateRow = new wxBoxSizer(wxHORIZONTAL);
+    m_stateDot = new StatusDot(m_gameCard, 9);
+    stateRow->Add(m_stateDot, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(7));
+    m_stateText = new wxStaticText(m_gameCard, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize,
+                                   wxST_NO_AUTORESIZE | wxST_ELLIPSIZE_END);
+    m_stateText->SetFont(Ui::SemiBold(GetFont()));
+    m_stateText->SetForegroundColour(Ui::kText);
+    m_stateText->SetMinSize(wxSize(FromDIP(40), m_stateText->GetCharHeight()));
+    stateRow->Add(m_stateText, 1, wxALIGN_CENTER_VERTICAL);
+    content->Add(stateRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, pad);
+
+    // Under it, lined up with the text: what guests will see.
+    wxBoxSizer* detailRow = new wxBoxSizer(wxHORIZONTAL);
+    detailRow->AddSpacer(FromDIP(16));
+    m_stateDetail = new WrapLabel(m_gameCard);
+    m_stateDetail->SetFont(GetFont().Scaled(0.92f));
+    m_stateDetail->SetForegroundColour(Ui::kTextSecondary);
+    detailRow->Add(m_stateDetail, 1);
+    content->AddSpacer(FromDIP(2));
+    content->Add(detailRow, 0, wxEXPAND | wxLEFT | wxRIGHT, pad);
+
+    // Create a guest link (or copy it again / make another), and End session.
+    wxBoxSizer* buttons = new wxBoxSizer(wxHORIZONTAL);
+    m_linkButton = new FlatButton(m_gameCard, "Create guest link", FlatButton::Primary, Ui::kGlyphLink);
+    m_linkButton->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { OnLinkButton(); });
+    buttons->Add(m_linkButton, 1);
+    m_endButton = new FlatButton(m_gameCard, "End session");
+    m_endButton->SetToolTip("Disconnect everyone, cancel unused invites and guest links, and stop sharing your screen.");
+    m_endButton->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { ConfirmEndSession(); });
+    m_endButton->Hide();
+    buttons->Add(m_endButton, 1, wxLEFT, FromDIP(8));
+    content->Add(buttons, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, pad);
+
+    // Invites nobody has used yet, each with a Cancel button (RefreshWaitingInvites).
+    m_waitingSizer = new wxBoxSizer(wxVERTICAL);
+    content->Add(m_waitingSizer, 0, wxEXPAND | wxLEFT | wxRIGHT, pad);
+
+    // A short message: invite sent, link copied, why a session ended...
+    m_noticeCard = new Card(m_gameCard, Ui::kGoodBg, wxNullColour, 6);
+    wxBoxSizer* noticeRow = new wxBoxSizer(wxHORIZONTAL);
+    if (Ui::HasIconFont())
+    {
+        m_noticeIcon = new wxStaticText(m_noticeCard, wxID_ANY, wxString(Ui::kGlyphCheck));
+        m_noticeIcon->SetFont(Ui::IconFont(GetFont()));
+        noticeRow->Add(m_noticeIcon, 0, wxRIGHT | wxTOP, FromDIP(2));
+        noticeRow->AddSpacer(FromDIP(6));
+    }
+    m_noticeText = new WrapLabel(m_noticeCard);
+    noticeRow->Add(m_noticeText, 1);
+    m_noticeCard->Content()->Add(noticeRow, 0, wxEXPAND | wxALL, FromDIP(8));
+    content->Add(m_noticeCard, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, pad);
+    m_noticeCard->Hide();
+
+    content->AddSpacer(pad);
+    sizer->Add(m_gameCard, 0, wxEXPAND | wxALL, FromDIP(10));
+}
+
+wxWindow* FriendsListFrame::AddSectionHeader(wxStaticText** label, FlatButton** toggle)
+{
+    wxPanel* header = new wxPanel(m_friendsListContainer, wxID_ANY);
+    header->SetBackgroundColour(Ui::kWindow);
+    wxBoxSizer* row = new wxBoxSizer(wxHORIZONTAL);
+    row->AddSpacer(FromDIP(14));
+    *label = new wxStaticText(header, wxID_ANY, wxEmptyString);
+    (*label)->SetFont(Ui::SemiBold(GetFont()).Scaled(0.88f));
+    (*label)->SetForegroundColour(Ui::kTextSecondary);
+    row->Add(*label, 1, wxALIGN_CENTER_VERTICAL);
+    if (toggle)
+    {
+        *toggle = new FlatButton(header, "Show", FlatButton::Link, 0, true);
+        (*toggle)->SetFont(GetFont().Scaled(0.92f));
+        row->Add(*toggle, 0, wxALIGN_CENTER_VERTICAL);
+    }
+    row->AddSpacer(FromDIP(8));
+    header->SetSizer(row);
+    header->SetMinSize(wxSize(-1, FromDIP(30)));
+    m_friendsListSizer->Add(header, 0, wxEXPAND | wxTOP, FromDIP(4));
+    return header;
+}
+
+void FriendsListFrame::BuildFriendsList(wxSizer* sizer)
+{
+    m_friendsListContainer = new wxScrolledWindow(m_body, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxVSCROLL);
+    m_friendsListContainer->SetBackgroundColour(Ui::kWindow);
+    // Vertical scrolling only: the rows always fit the width.
+    m_friendsListContainer->SetScrollRate(0, FromDIP(8));
+    m_friendsListSizer = new wxBoxSizer(wxVERTICAL);
+
+    // Friends who've joined before, then online friends, then the ones who
+    // appear offline (they may just be invisible, and an invite link reaches
+    // them in Steam chat anyway). The offline ones fold away.
+    m_recentHeader = AddSectionHeader(&m_recentLabel, nullptr);
+    m_recentLabel->SetLabel("PLAYED WITH RECENTLY");
+    m_recentSizer = new wxBoxSizer(wxVERTICAL);
+    m_friendsListSizer->Add(m_recentSizer, 0, wxEXPAND);
+    m_onlineHeader = AddSectionHeader(&m_onlineLabel, nullptr);
+    m_onlineSizer = new wxBoxSizer(wxVERTICAL);
+    m_friendsListSizer->Add(m_onlineSizer, 0, wxEXPAND);
+    m_offlineHeader = AddSectionHeader(&m_offlineLabel, &m_offlineToggle);
+    m_offlineToggle->Bind(wxEVT_BUTTON, [this](wxCommandEvent&)
+    {
+        m_showOffline = !m_showOffline;
+        wxConfigBase* config = wxConfigBase::Get();
+        if (config)
+        {
+            config->Write(kShowOfflineKey, m_showOffline);
+            config->Flush();
+        }
+        ApplyFilter();
+    });
+    m_offlineSizer = new wxBoxSizer(wxVERTICAL);
+    m_friendsListSizer->Add(m_offlineSizer, 0, wxEXPAND);
+
+    m_noMatches = new wxStaticText(m_friendsListContainer, wxID_ANY, "No friends match your search.");
+    m_noMatches->SetForegroundColour(Ui::kTextSecondary);
+    m_noMatches->Hide();
+    m_friendsListSizer->Add(m_noMatches, 0, wxLEFT | wxRIGHT | wxTOP, FromDIP(14));
+    m_friendsListSizer->AddSpacer(FromDIP(8));
+
+    m_joinTimes = LoadGuestJoinTimes();
+    m_rosterSeen = m_pRemoteInvite->RosterRevision();
+    int cFriends = GClientContext()->SteamFriends()->GetFriendCount(k_EFriendFlagImmediate);
+    for(int i = 0; i < cFriends; ++i)
+    {
+        AddFreiendPanel(GClientContext()->SteamFriends()->GetFriendByIndex(i, k_EFriendFlagImmediate));
+    }
+
+    m_friendsListContainer->SetSizer(m_friendsListSizer);
+    ArrangeFriendPanels();
+    sizer->Add(m_friendsListContainer, 1, wxEXPAND);
 }
 
 void FriendsListFrame::OnClose(wxCloseEvent& event)
@@ -261,7 +395,7 @@ void FriendsListFrame::SetTray(RpwTrayIcon* tray)
     m_tray = tray;
     if (m_tray)
     {
-        m_tray->SetStatus(m_statusShown);
+        m_tray->SetStatus(m_trayShown);
     }
 }
 
@@ -280,112 +414,278 @@ WXLRESULT FriendsListFrame::MSWWindowProc(WXUINT msg, WXWPARAM wParam, WXLPARAM 
 
 void FriendsListFrame::UpdateStatus()
 {
-    wxString notice = wxString::FromUTF8(m_pRemoteInvite->TakeNotice().c_str());
-    if (!notice.empty())
+    const wxLongLong now = wxGetLocalTimeMillis();
+    const wxString handlerNotice = wxString::FromUTF8(m_pRemoteInvite->TakeNotice().c_str());
+    if (!handlerNotice.empty())
     {
-        m_notice = notice;
-        m_noticeUntil = wxGetLocalTimeMillis() + 15000;
+        m_notice = handlerNotice;
+        m_noticeKind = NoticeWarning;
+        m_noticeUntil = now + 15000;
     }
-
-    wxString text;
-    wxColour colour = wxSystemSettings::GetColour(wxSYS_COLOUR_GRAYTEXT);
-    bool session = m_pRemoteInvite->IsSessionActive();
-
-    if (!m_notice.empty() && wxGetLocalTimeMillis() < m_noticeUntil)
-    {
-        text = m_notice;
-        colour = kNoticeOrange;
-    }
-    else if (!GClientContext()->SteamUser()->BLoggedOn())
-    {
-        text = "Steam isn't signed in.";
-    }
-    else
+    if (!m_notice.empty() && now >= m_noticeUntil)
     {
         m_notice.clear();
-        CGameID game = GetRunningGameID();
-        bool nonSteam = game.IsValid() &&
-                        !(game.IsSteamApp() && game.AppID() != m_pRemoteInvite->GetNonSteamAppID());
-        wxString name = game.IsValid() ?
-            GetGameName(game, GClientContext()->SteamUser()->GetSteamID().GetAccountID()) : wxString();
-        if (name.empty())
+    }
+    // Requests Steam never answered (it normally does within seconds).
+    if (m_linkRequestedAt != 0 && now - m_linkRequestedAt > 20000)
+    {
+        m_linkRequestedAt = 0;
+    }
+    for (std::map<uint64, wxLongLong>::iterator it = m_sending.begin(); it != m_sending.end();)
+    {
+        if (now - it->second > 20000)
         {
-            name = nonSteam ? "a non-Steam game" : "your game";
-        }
-
-        if (session)
-        {
-            unsigned guests = (unsigned)m_pRemoteInvite->Guests().size();
-            text = "Sharing " + name + ": ";
-            text += guests == 0 ? wxString("waiting for guests to join.") :
-                    guests == 1 ? wxString("1 guest connected.") :
-                    wxString::Format("%u guests connected.", guests);
-            if (m_pRemoteInvite->IsSharingDesktop())
-            {
-                text += " Guests can see your whole screen.";
-            }
-            colour = kReadyGreen;
-        }
-        else if (!game.IsValid())
-        {
-            text = "No game running. Start a game through Steam, then invite someone.";
+            it = m_sending.erase(it);
         }
         else
         {
-            text = "Ready to share: " + name;
-            if (nonSteam)
-            {
-                text += " (non-Steam game, so your whole screen will be shared)";
-            }
-            colour = kReadyGreen;
+            ++it;
         }
+    }
+    if (m_copiedUntil != 0 && now >= m_copiedUntil)
+    {
+        m_copiedUntil = 0;
+    }
+
+    const bool signedIn = GClientContext()->SteamUser()->BLoggedOn();
+    const bool session = m_pRemoteInvite->IsSessionActive();
+    const CGameID game = GetRunningGameID();
+    const bool hasGame = signedIn && game.IsValid();
+    const bool nonSteam = hasGame && !(game.IsSteamApp() && game.AppID() != m_pRemoteInvite->GetNonSteamAppID());
+    const uint32 account = signedIn ? GClientContext()->SteamUser()->GetSteamID().GetAccountID() : 0;
+    wxString name = hasGame ? GetGameName(game, account) : wxString();
+    const wxString gameInText = name.empty() ? wxString(nonSteam ? "a non-Steam game" : "your game") : name;
+    if (name.empty())
+    {
+        name = nonSteam ? "A non-Steam game" : "Your game";
+    }
+    const unsigned guests = (unsigned)m_pRemoteInvite->Guests().size();
+    const bool desktop = m_pRemoteInvite->IsSharingDesktop();
+
+    // The state line, the line under it, and the same in a sentence for the tray.
+    wxString state, detail, trayText;
+    wxColour dot = Ui::kTextMuted;
+    wxColour detailColour = Ui::kTextSecondary;
+    if (!signedIn)
+    {
+        state = "Steam isn't signed in";
+        detail = "Sign in to Steam, then invite someone.";
+        trayText = "Steam isn't signed in.";
+    }
+    else if (session)
+    {
+        const wxString who = guests == 0 ? wxString("waiting for guests") :
+                             guests == 1 ? wxString("1 guest connected") :
+                             wxString::Format("%u guests connected", guests);
+        state = "Sharing" + Ui::Separator() + who;
+        detail = desktop ? "Guests can see your whole screen" : "Only the game is shared, not your screen";
+        detailColour = desktop ? Ui::kWarnText : Ui::kTextSecondary;
+        dot = Ui::kGood;
+        trayText = "Sharing " + gameInText + ": " +
+                   (guests == 0 ? wxString("waiting for guests to join.") : who + ".") +
+                   (desktop ? " Guests can see your whole screen." : "");
+    }
+    else if (!hasGame)
+    {
+        state = "No game running";
+        detail = "Start a game through Steam, then invite someone.";
+        trayText = "No game running. Start a game through Steam, then invite someone.";
+    }
+    else
+    {
+        state = "Ready to share";
+        detail = nonSteam ? "Not a Steam game, so guests will see your whole screen"
+                          : "Only the game will be shared, not your screen";
+        detailColour = nonSteam ? Ui::kWarnText : Ui::kTextSecondary;
+        dot = Ui::kGood;
+        trayText = "Ready to share: " + gameInText +
+                   (nonSteam ? " (non-Steam game, so your whole screen will be shared)" : "");
+    }
+    if (!m_notice.empty())
+    {
+        trayText = m_notice;
     }
 
     bool relayout = false;
     // Guests seeing the whole screen shouldn't see this app (or its links).
-    HideFromScreenCapture(m_pRemoteInvite->IsSharingDesktop());
-    if (text != m_statusShown)
+    HideFromScreenCapture(desktop);
+
+    // The game's picture and name.
+    const unsigned long long gameKey = hasGame ? (unsigned long long)game.ToUint64() : 0;
+    if (gameKey != m_bannerGame)
     {
-        m_statusShown = text;
-        m_status->SetLabel(text);
-        m_status->SetForegroundColour(colour);
-        m_status->Wrap(FromDIP(235));
-        relayout = true;
-        if (m_tray)
+        m_bannerGame = gameKey;
+        if (gameKey)
         {
-            m_tray->SetStatus(text);
+            m_gameCard->SetBanner(LoadArtwork(GetGameArtworkPath(game, account)), name, gameKey);
         }
+        else
+        {
+            m_gameCard->ClearBanner();
+        }
+        relayout = true;
+    }
+    else if (gameKey)
+    {
+        m_gameCard->SetBannerTitle(name);
+    }
+
+    if (m_stateText->GetLabelText() != state)
+    {
+        m_stateText->SetLabelText(state);
+    }
+    m_stateDot->SetColour(dot);
+    if (m_stateDetail->GetLabel() != detail)
+    {
+        m_stateDetail->SetLabel(detail);
+        relayout = true;
+    }
+    if (m_stateDetail->GetForegroundColour() != detailColour)
+    {
+        m_stateDetail->SetForegroundColour(detailColour);
+        m_stateDetail->Refresh();
+    }
+
+    // One button for the guest link: create one, copy the unused one again,
+    // or (once it's been used) make another.
+    const bool hasLink = session && !m_pRemoteInvite->GuestLink().empty();
+    wxString label, tip;
+    wchar_t glyph = Ui::kGlyphLink;
+    FlatButton::Kind kind = FlatButton::Secondary;
+    if (!session)
+    {
+        label = "Create guest link";
+        kind = FlatButton::Primary;
+        tip = !hasGame ? wxString("Start a game through Steam first.") :
+              m_guestLinkKeyUsable ? wxString("A link anyone can use to join. While you're in the game, Ctrl+Alt+L copies one too.")
+                                   : wxString("A link anyone can use to join.");
+    }
+    else if (hasLink)
+    {
+        label = m_copiedUntil != 0 ? "Copied!" : "Copy guest link";
+        glyph = m_copiedUntil != 0 ? Ui::kGlyphCheck : Ui::kGlyphCopy;
+        tip = "Copy this session's guest link again.";
+    }
+    else
+    {
+        label = "New guest link";
+        tip = "Create another guest link for this session.";
+    }
+    const bool creating = m_linkRequestedAt != 0;
+    if (creating)
+    {
+        label = "Creating a link...";
+    }
+    if (m_linkButton->GetLabel() != label || m_linkButton->GetKind() != kind)
+    {
+        relayout = true;
+    }
+    m_linkButton->SetLabel(label);
+    m_linkButton->SetGlyph(glyph);
+    m_linkButton->SetKind(kind);
+    m_linkButton->Enable(!creating);
+    m_linkButton->SetMuted(!session && !hasGame);
+    if (m_linkButton->GetToolTipText() != tip)
+    {
+        m_linkButton->SetToolTip(tip);
     }
     if (m_endButton->IsShown() != session)
     {
         m_endButton->Show(session);
         relayout = true;
     }
-    bool hasLink = session && !m_pRemoteInvite->GuestLink().empty();
-    if (m_copyLinkButton->IsShown() != hasLink)
-    {
-        m_copyLinkButton->Show(hasLink);
-        relayout = true;
-    }
-    if (m_copiedUntil != 0 && wxGetLocalTimeMillis() >= m_copiedUntil)
-    {
-        m_copyLinkButton->SetLabel("Copy guest link");
-        m_copiedUntil = 0;
-    }
     if (RefreshWaitingInvites())
     {
         relayout = true;
     }
+
+    // The short message, coloured by kind.
+    if (m_notice != m_noticeShown || m_noticeKind != m_noticeKindShown)
+    {
+        m_noticeShown = m_notice;
+        m_noticeKindShown = m_noticeKind;
+        if (!m_notice.empty())
+        {
+            wxColour background = Ui::kInfoBg, text = Ui::kAccentPressed;
+            wchar_t icon = Ui::kGlyphInfo;
+            if (m_noticeKind == NoticeSuccess)
+            {
+                background = Ui::kGoodBg;
+                text = Ui::kGoodText;
+                icon = Ui::kGlyphCheck;
+            }
+            else if (m_noticeKind == NoticeWarning)
+            {
+                background = Ui::kWarnBg;
+                text = Ui::kWarnText;
+                icon = Ui::kGlyphWarning;
+            }
+            m_noticeCard->SetColours(background, wxNullColour);
+            m_noticeText->SetForegroundColour(text);
+            m_noticeText->SetLabel(m_notice);
+            m_noticeText->Refresh();
+            if (m_noticeIcon)
+            {
+                m_noticeIcon->SetLabel(wxString(icon));
+                m_noticeIcon->SetForegroundColour(text);
+            }
+        }
+        m_noticeCard->Show(!m_notice.empty());
+        relayout = true;
+    }
+
+    if (trayText != m_trayShown)
+    {
+        m_trayShown = trayText;
+        if (m_tray)
+        {
+            m_tray->SetStatus(trayText);
+        }
+    }
+
+    RefreshInviteStates(hasGame);
     if (relayout)
     {
-        m_status->GetParent()->Layout();
-        Layout();
+        Ui::Relayout(m_gameCard);
     }
 }
 
-void FriendsListFrame::OnCopyLink(wxCommandEvent&)
+void FriendsListFrame::RefreshInviteStates(bool canInvite)
 {
-    CopyGuestLink();
+    std::set<uint64> waiting, joined;
+    const std::vector<RemotePlayInviteHandler::WaitingInvite> invites = m_pRemoteInvite->WaitingInvites();
+    for (size_t i = 0; i < invites.size(); ++i)
+    {
+        if (invites[i].steamID)
+        {
+            waiting.insert(invites[i].steamID);
+        }
+    }
+    const std::vector<ConnectedGuest>& guests = m_pRemoteInvite->Guests();
+    for (size_t i = 0; i < guests.size(); ++i)
+    {
+        if (guests[i].steamID)
+        {
+            joined.insert(guests[i].steamID);
+        }
+    }
+    for (std::map<uint64, FriendPanel*>::iterator it = m_friendPanels.begin(); it != m_friendPanels.end(); ++it)
+    {
+        FriendPanel::InviteState state = canInvite ? FriendPanel::InviteReady : FriendPanel::InviteNoGame;
+        if (joined.count(it->first))
+        {
+            state = FriendPanel::InviteJoined;
+        }
+        else if (waiting.count(it->first))
+        {
+            state = FriendPanel::InviteSent;
+        }
+        else if (m_sending.count(it->first))
+        {
+            state = FriendPanel::InviteSending;
+        }
+        it->second->SetInviteState(state);
+    }
 }
 
 bool FriendsListFrame::RefreshWaitingInvites()
@@ -396,7 +696,7 @@ bool FriendsListFrame::RefreshWaitingInvites()
     wxString shown;
     for (size_t i = 0; i < waiting.size(); ++i)
     {
-        wxString label = "Guest link (not used yet)";
+        wxString label = "Guest link" + Ui::Separator() + "not used yet";
         if (waiting[i].steamID)
         {
             const char* persona = GClientContext()->SteamFriends()->GetFriendPersonaName(CSteamID((uint64)waiting[i].steamID));
@@ -416,13 +716,23 @@ bool FriendsListFrame::RefreshWaitingInvites()
     {
         const uint64 id = waiting[i].steamID;
         const uint32 guest = waiting[i].guestID;
-        wxBoxSizer* row = new wxBoxSizer(wxHORIZONTAL);
-        wxStaticText* text = new wxStaticText(m_statusPanel, wxID_ANY, labels[i], wxDefaultPosition, wxDefaultSize,
+        Card* row = new Card(m_gameCard, Ui::kSubtle, wxNullColour, 6);
+        wxBoxSizer* line = new wxBoxSizer(wxHORIZONTAL);
+        if (Ui::HasIconFont())
+        {
+            wxStaticText* icon = new wxStaticText(row, wxID_ANY, wxString(Ui::kGlyphClock));
+            icon->SetFont(Ui::IconFont(GetFont()));
+            icon->SetForegroundColour(Ui::kTextSecondary);
+            line->Add(icon, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+        }
+        wxStaticText* text = new wxStaticText(row, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize,
                                               wxST_NO_AUTORESIZE | wxST_ELLIPSIZE_END);
-        text->SetMinSize(wxSize(FromDIP(40), text->GetBestSize().GetHeight()));
+        text->SetLabelText(labels[i]);
+        text->SetForegroundColour(Ui::kText);
+        text->SetMinSize(wxSize(FromDIP(40), text->GetCharHeight()));
         text->SetToolTip(id ? labels[i] + " to join." : wxString("Nobody has opened this guest link yet."));
-        row->Add(text, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
-        wxButton* cancel = new wxButton(m_statusPanel, wxID_ANY, "Cancel", wxDefaultPosition, wxDefaultSize, wxBU_EXACTFIT);
+        line->Add(text, 1, wxALIGN_CENTER_VERTICAL);
+        FlatButton* cancel = new FlatButton(row, "Cancel", FlatButton::Link, 0, true);
         cancel->SetToolTip(id ? wxString("Cancel this invite, so it no longer works.")
                               : wxString("Make this guest link stop working."));
         cancel->Bind(wxEVT_BUTTON, [this, id, guest](wxCommandEvent&)
@@ -435,14 +745,16 @@ bool FriendsListFrame::RefreshWaitingInvites()
                 UpdateStatus();
             });
         });
-        row->Add(cancel, 0, wxALIGN_CENTER_VERTICAL);
-        m_waitingSizer->Add(row, 0, wxEXPAND | wxBOTTOM, 4);
+        line->Add(cancel, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(6));
+        row->Content()->Add(line, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP | wxBOTTOM, FromDIP(5));
+        m_waitingSizer->Add(row, 0, wxEXPAND | wxTOP, FromDIP(8));
     }
     if (waiting.size() > kShown)
     {
-        m_waitingSizer->Add(new wxStaticText(m_statusPanel, wxID_ANY,
-                                             wxString::Format("and %u more", (unsigned)(waiting.size() - kShown))),
-                            0, wxBOTTOM, 4);
+        wxStaticText* more = new wxStaticText(m_gameCard, wxID_ANY,
+                                              wxString::Format("and %u more", (unsigned)(waiting.size() - kShown)));
+        more->SetForegroundColour(Ui::kTextSecondary);
+        m_waitingSizer->Add(more, 0, wxTOP, FromDIP(6));
     }
     return true;
 }
@@ -455,14 +767,21 @@ void FriendsListFrame::CopyGuestLink()
         wxTheClipboard->SetData(new wxTextDataObject(link));
         wxTheClipboard->Flush();
         wxTheClipboard->Close();
-        m_copyLinkButton->SetLabel("Copied!");
         m_copiedUntil = wxGetLocalTimeMillis() + 2000;
+        UpdateStatus();
     }
 }
 
-void FriendsListFrame::OnEndSession(wxCommandEvent&)
+void FriendsListFrame::OnLinkButton()
 {
-    ConfirmEndSession();
+    if (m_pRemoteInvite->IsSessionActive() && !m_pRemoteInvite->GuestLink().empty())
+    {
+        CopyGuestLink();
+    }
+    else
+    {
+        CreateGuestLink();
+    }
 }
 
 void FriendsListFrame::ConfirmEndSession()
@@ -480,10 +799,11 @@ void FriendsListFrame::ConfirmEndSession()
     }
 }
 
-void FriendsListFrame::ShowNotice(const wxString& text)
+void FriendsListFrame::ShowNotice(const wxString& text, NoticeKind kind)
 {
     m_notice = text;
-    m_noticeUntil = wxGetLocalTimeMillis() + 15000;
+    m_noticeKind = kind;
+    m_noticeUntil = wxGetLocalTimeMillis() + (kind == NoticeWarning ? 15000 : 10000);
     UpdateStatus();
 }
 
@@ -533,20 +853,26 @@ void FriendsListFrame::RefreshUpdateButton()
     const AppUpdater::State state = m_updater->GetState();
     const bool working = state == AppUpdater::Downloading || state == AppUpdater::Installing ||
                          state == AppUpdater::Restarting;
-    wxString label = wxString::Format("Update to build %ld", build);
+    wxString label = "Update";
     if (state == AppUpdater::Downloading)
     {
-        label = "Downloading the update...";
+        label = "Downloading...";
     }
     else if (state == AppUpdater::Installing || state == AppUpdater::Restarting)
     {
-        label = "Installing the update...";
+        label = "Installing...";
     }
 
     bool relayout = false;
-    if (m_updateButton->IsShown() != (build > 0))
+    if (m_updateCard->IsShown() != (build > 0))
     {
-        m_updateButton->Show(build > 0);
+        m_updateCard->Show(build > 0);
+        relayout = true;
+    }
+    const wxString title = wxString::Format("Build %ld is available", build);
+    if (m_updateTitle->GetLabel() != title)
+    {
+        m_updateTitle->SetLabel(title);
         relayout = true;
     }
     if (m_updateButton->GetLabel() != label)
@@ -556,14 +882,12 @@ void FriendsListFrame::RefreshUpdateButton()
     }
     m_updateButton->Enable(!working);
 
-    // What's new: a line under the button, the whole list in its tooltip.
+    // What's new: a line under the title, the whole list in the button's tooltip.
     const wxString notes = build > 0 ? m_updater->NotesSummary(110) : wxString();
-    const wxString notesText = notes.empty() ? wxString() : "New: " + notes;
-    if (m_updateNotes->GetLabel() != notesText || m_updateNotes->IsShown() != !notesText.empty())
+    const wxString notesText = notes.empty() ? wxString("Remote Play Whatever restarts with it.") : "New: " + notes;
+    if (m_updateNotes->GetLabel() != notesText)
     {
         m_updateNotes->SetLabel(notesText);
-        m_updateNotes->Wrap(FromDIP(235));
-        m_updateNotes->Show(!notesText.empty());
         relayout = true;
     }
     wxString tip = "Download the new version from GitHub and restart Remote Play Whatever with it.";
@@ -578,8 +902,7 @@ void FriendsListFrame::RefreshUpdateButton()
 
     if (relayout)
     {
-        m_updateButton->GetParent()->Layout();
-        Layout();
+        Ui::Relayout(m_updateCard);
     }
 }
 
@@ -653,9 +976,8 @@ void FriendsListFrame::OnUpdaterChange()
         CallAfter([this]()
         {
             wxMessageBox(
-                wxString::Format("A Remote Play session started while the update was downloading, so it wasn't "
-                                 "installed.\n\nClick \"Update to build %ld\" again when the session is over.",
-                                 m_updater->AvailableBuild()),
+                "A Remote Play session started while the update was downloading, so it wasn't "
+                "installed.\n\nClick \"Update\" again when the session is over.",
                 "Remote Play Whatever",
                 wxOK | wxICON_INFORMATION,
                 IsShown() ? this : nullptr
@@ -746,7 +1068,7 @@ void FriendsListFrame::AddFreiendPanel(CSteamID friendID)
         (*it).second->UpdatePersona();
         return;
     }
-    m_friendPanels[friendID64] = new FriendPanel(m_friendsListContainer, rpwID_INVITE_FRIEND, friendID);
+    m_friendPanels[friendID64] = new FriendPanel(m_friendsListContainer, friendID);
 }
 
 void FriendsListFrame::RemoveFriendPanel(CSteamID friendID)
@@ -762,6 +1084,7 @@ void FriendsListFrame::RemoveFriendPanel(CSteamID friendID)
         panel->Destroy();
         m_friendPanels.erase(it);
         m_recentIDs.erase(friendID64);
+        m_sending.erase(friendID64);
     }
 }
 
@@ -815,15 +1138,15 @@ void FriendsListFrame::ArrangeFriendPanels()
     m_offlineSizer->Clear(false);
     for (size_t i = 0; i < played.size(); ++i)
     {
-        m_recentSizer->Add(played[i].second, 0, wxBOTTOM | wxEXPAND, 1);
+        m_recentSizer->Add(played[i].second, 0, wxEXPAND);
     }
     for (size_t i = 0; i < online.size(); ++i)
     {
-        m_onlineSizer->Add(online[i], 0, wxBOTTOM | wxEXPAND, 1);
+        m_onlineSizer->Add(online[i], 0, wxEXPAND);
     }
     for (size_t i = 0; i < offline.size(); ++i)
     {
-        m_offlineSizer->Add(offline[i], 0, wxBOTTOM | wxEXPAND, 1);
+        m_offlineSizer->Add(offline[i], 0, wxEXPAND);
     }
     ApplyFilter();
 }
@@ -865,44 +1188,56 @@ void FriendsListFrame::OnPersonaStateChange(PersonaStateChange_t* personaStateCb
 void FriendsListFrame::ApplyFilter()
 {
     wxString needle = m_search ? m_search->GetValue().Lower().Trim().Trim(false) : wxString();
+    const bool searching = !needle.empty();
+    // A search looks through everyone, the folded-away offline friends too.
+    const bool showOffline = m_showOffline || searching;
     int recent = 0, online = 0, offline = 0;
     for (auto it = m_friendPanels.begin(); it != m_friendPanels.end(); ++it)
     {
         FriendPanel* panel = it->second;
         // A search finds names and what friends are doing ("playing ...").
-        bool match = needle.empty() || panel->GetDisplayPersonaName().Lower().Contains(needle) ||
-                     panel->GetDisplayPersonaState().Lower().Contains(needle);
-        panel->Show(match);
+        const bool match = !searching || panel->GetDisplayPersonaName().Lower().Contains(needle) ||
+                           panel->GetDisplayPersonaState().Lower().Contains(needle);
+        const bool isRecent = m_recentIDs.count(it->first) != 0;
+        const bool isOffline = !isRecent && !panel->IsOnline();
         if (match)
         {
-            if (m_recentIDs.count(it->first))
-            {
-                ++recent;
-            }
-            else
-            {
-                ++(panel->IsOnline() ? online : offline);
-            }
+            ++(isRecent ? recent : isOffline ? offline : online);
         }
+        panel->Show(match && (!isOffline || showOffline));
     }
-    m_recentLabel->SetLabel(wxString::Format("Played with recently (%d)", recent));
-    m_recentLabel->Show(recent > 0);
-    m_onlineLabel->SetLabel(wxString::Format("Online (%d)", online));
-    m_onlineLabel->Show(online > 0);
-    m_offlineLabel->SetLabel(wxString::Format("Offline (%d)", offline));
-    m_offlineLabel->Show(offline > 0);
+    m_recentHeader->Show(recent > 0);
+    m_onlineLabel->SetLabel(wxString::Format("ONLINE (%d)", online));
+    m_onlineHeader->Show(online > 0);
+    m_offlineLabel->SetLabel(wxString::Format("OFFLINE (%d)", offline));
+    m_offlineHeader->Show(offline > 0);
+    m_offlineToggle->SetLabel(m_showOffline ? "Hide" : "Show");
+    m_offlineToggle->SetToolTip(m_showOffline ? "Hide the friends who appear offline."
+                                              : "Show the friends who appear offline (they may be invisible).");
+    m_offlineToggle->Show(!searching);
+    m_offlineHeader->Layout();
+    m_noMatches->Show(searching && recent + online + offline == 0);
     m_friendsListContainer->FitInside();
     m_friendsListContainer->Layout();
 }
 
 void FriendsListFrame::OnRemotePlayInviteResult(RemotePlayInviteResult_t* inviteResultCb)
 {
+    const bool forFriend = inviteResultCb->m_player.m_playerID.IsValid();
     // A guest link asked for with Ctrl+Alt+L: answer with a tray notification,
     // not a message box that would pull the host out of the game.
-    const bool viaHotKey = HotKeyLinkPending() && !inviteResultCb->m_player.m_playerID.IsValid();
+    const bool viaHotKey = HotKeyLinkPending() && !forFriend;
     if (viaHotKey)
     {
         m_hotKeyLinkSince = 0;
+    }
+    if (forFriend)
+    {
+        m_sending.erase(inviteResultCb->m_player.m_playerID.ConvertToUint64());
+    }
+    else
+    {
+        m_linkRequestedAt = 0;
     }
 
     if (inviteResultCb->m_eResult != k_ERemoteClientLaunchResultOK)
@@ -912,165 +1247,141 @@ void FriendsListFrame::OnRemotePlayInviteResult(RemotePlayInviteResult_t* invite
             Announce("Couldn't create a guest link", DescribeLaunchResult(inviteResultCb->m_eResult), false);
             return;
         }
+        UpdateStatus();
         wxMessageBox(
             "Couldn't start Remote Play. " + DescribeLaunchResult(inviteResultCb->m_eResult) +
             wxString::Format("\n\n(Steam result %d)", (int)inviteResultCb->m_eResult),
             "Remote Play Whatever",
-            wxOK | wxICON_ERROR
+            wxOK | wxICON_ERROR,
+            IsShown() ? this : nullptr
         );
+        return;
+    }
+
+    if (forFriend)
+    {
+        const uint64 id = inviteResultCb->m_player.m_playerID.ConvertToUint64();
+        const char* persona = GClientContext()->SteamFriends()->GetFriendPersonaName(inviteResultCb->m_player.m_playerID);
+        const wxString name = wxString::FromUTF8(persona && *persona ? persona : "your friend");
+        std::map<uint64, FriendPanel*>::const_iterator panel = m_friendPanels.find(id);
+        const bool offline = panel != m_friendPanels.end() && !panel->second->IsOnline();
+        ShowNotice(offline ? "Invite sent to " + name + ". They appear offline, so the link waits for them in Steam chat."
+                           : "Invite sent to " + name + ". They'll get the link in Steam chat.");
+        return;
+    }
+
+    wxString link = wxString::FromUTF8(ClickableURL(inviteResultCb->m_szConnectURL).c_str());
+    bool copied = false;
+    if (wxTheClipboard->Open())
+    {
+        copied = wxTheClipboard->SetData(new wxTextDataObject(link));
+        wxTheClipboard->Flush();
+        wxTheClipboard->Close();
+    }
+    if (viaHotKey)
+    {
+        // No link in the notification: guests may be watching the whole screen.
+        Announce(copied ? "Guest link copied" : "Guest link created",
+                 copied ? wxString("Paste it to whoever you want to play with. Anyone with the link can join.")
+                        : wxString("Copy it from Remote Play Whatever's window or its tray menu."),
+                 copied);
+        UpdateStatus();
+        return;
+    }
+    if (copied)
+    {
+        ShowNotice("Guest link copied. Paste it to whoever you want to play with; anyone with the link can join.");
     }
     else
     {
-        if(inviteResultCb->m_player.m_playerID.IsValid())
-        {
-            const char* persona = GClientContext()->SteamFriends()->GetFriendPersonaName(inviteResultCb->m_player.m_playerID);
-            wxMessageBox(
-                "Invite sent to " + wxString::FromUTF8(persona && *persona ? persona : "your friend") +
-                ". They'll get the link in Steam chat.",
-                "Remote Play Whatever",
-                wxOK | wxICON_INFORMATION
-            );
-        }
-        else
-        {
-            wxString link = wxString::FromUTF8(ClickableURL(inviteResultCb->m_szConnectURL).c_str());
-            bool copied = false;
-            // Close the clipboard before showing the message box; keeping it open
-            // while the box is up blocks pasting the link anywhere else.
-            if(wxTheClipboard->Open())
-            {
-                copied = wxTheClipboard->SetData(new wxTextDataObject(link));
-                wxTheClipboard->Flush();
-                wxTheClipboard->Close();
-            }
-            if (viaHotKey)
-            {
-                // No link in the notification: guests may be watching the whole screen.
-                Announce(copied ? "Guest link copied" : "Guest link created",
-                         copied ? wxString("Paste it to whoever you want to play with. Anyone with the link can join.")
-                                : wxString("Copy it from Remote Play Whatever's window or its tray menu."),
-                         copied);
-                return;
-            }
-            wxMessageBox(
-                (copied ? "Guest invite link copied to the clipboard:\n\n" : "Guest invite link:\n\n") + link +
-                "\n\nSend it to whoever you want to play with. Anyone with the link can join.",
-                "Remote Play Whatever",
-                wxOK | wxICON_INFORMATION
-            );
-        }
+        ShowNotice("Guest link created: " + link + " Send it to whoever you want to play with.", NoticeInfo);
     }
 }
 
-bool FriendsListFrame::CanSendInvite()
+bool FriendsListFrame::ReadyToInvite()
 {
-    if (!GClientContext()->SteamUser()->BLoggedOn() || !GetRunningGameID().IsValid())
+    if (!GClientContext()->SteamUser()->BLoggedOn())
     {
-        wxMessageBox(
-            "No game is running. Start the game through Steam first, then invite.",
-            "No game running",
-            wxOK | wxICON_INFORMATION
-        );
+        ShowNotice("Steam isn't signed in. Sign in to Steam, then try again.", NoticeWarning);
+        return false;
+    }
+    if (!GetRunningGameID().IsValid())
+    {
+        ShowNotice("No game is running. Start the game through Steam first, then invite.", NoticeWarning);
         return false;
     }
     return true;
 }
 
-bool FriendsListFrame::ShowNonSteamWarning()
+bool FriendsListFrame::ConfirmScreenSharing()
 {
-    AppId_t nonSteamAppID = m_pRemoteInvite->GetNonSteamAppID();
-    CGameID gameRunning = GetRunningGameID();
-
-    if (gameRunning.IsSteamApp() && gameRunning.AppID() != nonSteamAppID)
+    const CGameID game = GetRunningGameID();
+    if (game.IsSteamApp() && game.AppID() != m_pRemoteInvite->GetNonSteamAppID())
+    {
+        return true;
+    }
+    // Already sharing the screen this session: asking once is enough.
+    if (m_pRemoteInvite->IsSharingDesktop())
     {
         return true;
     }
 
-    bool dlgResult = false;
-    wxMessageDialog* dlg = new wxMessageDialog(this,
-                                               "Starting a Remote Play Together session for a non-Steam game\n"
-                                               "will expose your entire desktop to the remote player.\n"
-                                               "The Steam client might need to be restarted to stop\n"
-                                               "the desktop sharing session!\n\n"
-                                               "Continue?",
-                                               "Non-Steam Game confirmation",
-                                               wxOK | wxCANCEL);
-    if(dlg->ShowModal() == wxID_OK)
-    {
-        dlgResult = true;
-    }
-    delete dlg;
-    return dlgResult;
+    wxMessageDialog dialog(this,
+                           "This isn't a Steam game, so Remote Play shares your whole screen with your guests, "
+                           "not just the game. Remote Play Whatever keeps its own windows out of what they see.\n\n"
+                           "If the sharing doesn't stop when the session ends, restart Steam.\n\n"
+                           "Continue?",
+                           "Share your whole screen?",
+                           wxOK | wxCANCEL | wxICON_WARNING);
+    dialog.SetOKCancelLabels("Share my screen", "Cancel");
+    return dialog.ShowModal() == wxID_OK;
 }
 
-void FriendsListFrame::OnFriendPanelClick(wxCommandEvent &event)
+void FriendsListFrame::OnFriendInvite(wxCommandEvent& event)
 {
-    // Ask from the main window once this click has been handled: the clicked
-    // panel can go away while a dialog is open (if the friendship ends), so
+    // Invite once this click has been handled: a question may come first, and
+    // the row can go away while it's open (if the friendship ends), so
     // nothing below may touch it.
-    if(m_inviteQueued)
+    FriendPanel* panel = dynamic_cast<FriendPanel*>(event.GetEventObject());
+    if (!panel || m_inviteQueued)
     {
         return;
     }
-    FriendPanel* sender = (FriendPanel*)event.GetEventObject();
-    CSteamID invitee = sender->GetSteamID();
-    wxString name = sender->GetDisplayPersonaName();
-    bool online = sender->IsOnline();
+    const CSteamID invitee = panel->GetSteamID();
     m_inviteQueued = true;
-    CallAfter([this, invitee, name, online]()
+    CallAfter([this, invitee]()
     {
-        ConfirmFriendInvite(invitee, name, online);
+        InviteFriend(invitee);
         m_inviteQueued = false;
     });
 }
 
-void FriendsListFrame::ConfirmFriendInvite(CSteamID invitee, const wxString& name, bool online)
+void FriendsListFrame::InviteFriend(CSteamID invitee)
 {
-    if(!CanSendInvite())
+    if (!ReadyToInvite() || !ConfirmScreenSharing())
     {
         return;
     }
-
-    if(!ShowNonSteamWarning())
-    {
-        return;
-    }
-
-    wxString question = "Send remote play invite to " + name + "?";
-    if(!online)
-    {
-        question = name + " appears offline (they may be invisible). "
-                   "The invite link goes to them in Steam chat, and it should work once they're on Steam, "
-                   "as long as you're still sharing.\n\nSend the invite?";
-    }
-    wxMessageDialog* dlg = new wxMessageDialog(this, question, "Confirm Remote Play Invite", wxOK | wxCANCEL);
-    if(dlg->ShowModal() == wxID_OK)
-    {
-        m_notice.clear();   // an old message would be about something else
-        m_pRemoteInvite->SendInvite(invitee);
-    }
-    delete dlg;
+    m_notice.clear();   // an old message would be about something else
+    m_sending[invitee.ConvertToUint64()] = wxGetLocalTimeMillis();
+    m_pRemoteInvite->SendInvite(invitee);
+    UpdateStatus();
 }
 
-void FriendsListFrame::OnGuestPanelClick(wxCommandEvent &event)
+void FriendsListFrame::CreateGuestLink()
 {
-    if(!CanSendInvite())
+    if (m_linkRequestedAt != 0 || HotKeyLinkPending())
+    {
+        return;     // one is on its way
+    }
+    if (!ReadyToInvite() || !ConfirmScreenSharing())
     {
         return;
     }
-
-    if(!ShowNonSteamWarning())
-    {
-        return;
-    }
-
-    wxMessageDialog* dlg = new wxMessageDialog(this, "Create guest invite link?", "Confirm Remote Play Invite", wxOK | wxCANCEL);
-    if(dlg->ShowModal() == wxID_OK)
-    {
-        m_notice.clear();   // an old message would be about something else
-        m_pRemoteInvite->SendInvite(CSteamID(0, k_EUniversePublic, k_EAccountTypeIndividual));
-    }
-    delete dlg;
+    m_notice.clear();
+    m_linkRequestedAt = wxGetLocalTimeMillis();
+    m_pRemoteInvite->SendInvite(GuestLinkInvitee());
+    UpdateStatus();
 }
 
 bool FriendsListFrame::HotKeyLinkPending() const
@@ -1124,7 +1435,7 @@ void FriendsListFrame::OnGuestLinkHotKey()
         Announce("Guest link copied", "Paste it to whoever you want to play with. Anyone with the link can join.");
         return;
     }
-    if (HotKeyLinkPending())
+    if (HotKeyLinkPending() || m_linkRequestedAt != 0)
     {
         return;     // one is on its way
     }
@@ -1148,6 +1459,5 @@ void FriendsListFrame::OnGuestLinkHotKey()
 
     m_hotKeyLinkSince = wxGetLocalTimeMillis();
     m_notice.clear();
-    m_pRemoteInvite->SendInvite(CSteamID(0, k_EUniversePublic, k_EAccountTypeIndividual));
+    m_pRemoteInvite->SendInvite(GuestLinkInvitee());
 }
-
