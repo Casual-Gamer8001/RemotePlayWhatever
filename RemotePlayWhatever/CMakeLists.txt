@@ -103,6 +103,8 @@ set(APPSRCs "RemotePlayWhatever.cpp"
             "TrayIcon.cpp"
             "Updater.h"
             "Updater.cpp"
+            "UpdateNeededDialog.h"
+            "UpdateNeededDialog.cpp"
 )
 
 
