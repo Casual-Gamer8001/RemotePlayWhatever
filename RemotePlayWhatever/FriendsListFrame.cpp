@@ -331,6 +331,8 @@ void FriendsListFrame::UpdateStatus()
     }
 
     bool relayout = false;
+    // Guests seeing the whole screen shouldn't see this app (or its links).
+    HideFromScreenCapture(m_pRemoteInvite->IsSharingDesktop());
     if (text != m_statusShown)
     {
         m_statusShown = text;
@@ -905,9 +907,10 @@ void FriendsListFrame::OnRemotePlayInviteResult(RemotePlayInviteResult_t* invite
             }
             if (viaHotKey)
             {
+                // No link in the notification: guests may be watching the whole screen.
                 Announce(copied ? "Guest link copied" : "Guest link created",
                          copied ? wxString("Paste it to whoever you want to play with. Anyone with the link can join.")
-                                : "Copy it from Remote Play Whatever's window or tray menu: " + link,
+                                : wxString("Copy it from Remote Play Whatever's window or its tray menu."),
                          copied);
                 return;
             }

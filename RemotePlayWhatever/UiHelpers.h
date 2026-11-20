@@ -25,4 +25,10 @@ void SaveGuestControls(uint64 steamID, bool kbd, bool mouse, bool ctrl);
 void SaveGuestJoined(uint64 steamID);
 std::map<uint64, long> LoadGuestJoinTimes();
 
+// While the whole screen is shared with guests (non-Steam games), keep this
+// app's own windows (main window, guest controls, message boxes, menus) out of
+// what they see. Windows 10 2004 or later (older ones show a black box);
+// does nothing on other systems. Cheap to call repeatedly.
+void HideFromScreenCapture(bool hide);
+
 #endif // UIHELPERS_H
