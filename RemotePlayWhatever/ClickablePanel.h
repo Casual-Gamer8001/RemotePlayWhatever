@@ -20,9 +20,13 @@ protected:
 
     // Text colour when the panel isn't highlighted.
     virtual wxColour NormalForeground() const;
+    // Puts the text colours back after a highlight (all children get
+    // NormalForeground() unless a panel colours its parts differently).
+    virtual void RestoreForeground();
+
+    void RSetForegroundColour(const wxColour &colour);
 
 private:
-    void RSetForegroundColour(const wxColour &colour);
     void RSetBackgroundColour(const wxColour &colour);
 };
 

@@ -35,6 +35,7 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     m_noticeUntil(0),
     m_copiedUntil(0),
     m_tick(this),
+    m_statusRefreshTicks(0),
     m_askingGroupFallback(false),
     m_inviteQueued(false),
     m_remoteInviteResultCb(this, &FriendsListFrame::OnRemotePlayInviteResult),
@@ -519,6 +520,21 @@ void FriendsListFrame::OnUpdaterChange()
 void FriendsListFrame::OnTick(wxTimerEvent&)
 {
     UpdateStatus();
+
+    // Every 30 s, refresh what friends are doing: Steam can fill in a game's
+    // name a little after the friend started playing it.
+    if (++m_statusRefreshTicks >= 60)
+    {
+        m_statusRefreshTicks = 0;
+        for (auto it = m_friendPanels.begin(); it != m_friendPanels.end(); ++it)
+        {
+            if (it->second->IsOnline())
+            {
+                it->second->UpdateStatusLine();
+            }
+        }
+    }
+
     // Timers keep firing while a message box is open, so don't ask twice.
     if (m_pRemoteInvite->HasGroupFailure() && !m_askingGroupFallback)
     {
@@ -632,11 +648,13 @@ void FriendsListFrame::OnPersonaStateChange(PersonaStateChange_t* personaStateCb
         return;
     }
 
-    // Playing a different game, going away and so on don't change the list.
+    // Playing a different game, going away and so on don't change the list,
+    // only that friend's status line.
     const int listChanges = k_EPersonaChangeComeOnline | k_EPersonaChangeGoneOffline | k_EPersonaChangeName |
                             k_EPersonaChangeNameFirstSet | k_EPersonaChangeAvatar | k_EPersonaChangeRelationshipChanged;
     if(known && !(personaStateCb->m_nChangeFlags & listChanges))
     {
+        m_friendPanels[steamID.ConvertToUint64()]->UpdateStatusLine();
         return;
     }
 
@@ -651,7 +669,9 @@ void FriendsListFrame::ApplyFilter()
     for (auto it = m_friendPanels.begin(); it != m_friendPanels.end(); ++it)
     {
         FriendPanel* panel = it->second;
-        bool match = needle.empty() || panel->GetDisplayPersonaName().Lower().Contains(needle);
+        // A search finds names and what friends are doing ("playing ...").
+        bool match = needle.empty() || panel->GetDisplayPersonaName().Lower().Contains(needle) ||
+                     panel->GetDisplayPersonaState().Lower().Contains(needle);
         panel->Show(match);
         if (match)
         {
