@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!-- Merged by the linker with the manifest wxWidgets asks for (common controls 6).
+     System DPI aware: on a scaled screen (e.g. 150 %) Windows doesn't stretch the
+     app's bitmap any more, so text stays sharp; the app scales itself (FromDIP). -->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true</dpiAware>
+    </windowsSettings>
+  </application>
+</assembly>
