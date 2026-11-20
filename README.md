@@ -56,7 +56,7 @@ Download the latest [release](https://github.com/Casual-Gamer8001/RemotePlayWhat
 4. Alt+Tab (or switch) back to the RemotePlayWhatever window.
 5. Invite your friend(s):
     - **Direct Invite:** Click **Invite** next to a friend. They will receive the invite link via a Steam Chat message.
-    - **Guest Link:** Click **Create guest link**. The link is copied to your clipboard, ready for you to paste and share manually (**Copy guest link** copies it again).
+    - **Guest Link:** Click **Create guest link**. The link is copied to your clipboard, ready for you to paste and share manually (**Copy guest link** copies it again). Anyone can join with it, even without a Steam account: they open it and play through the free Steam Link app (on a phone, tablet, computer or TV). Each link lets one person in; **New guest link** makes another.
 6. Alt+Tab (or switch) back to your game.
 
 ## Command line arguments
