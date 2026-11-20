@@ -109,7 +109,8 @@ set(APPSRCs "RemotePlayWhatever.cpp"
 
 
 if(${SYSTEM_OS} STREQUAL "Win")
-    add_executable(RemotePlayWhatever WIN32 ${APPSRCs} "appresource.rc")
+    # The .manifest is merged into the exe's manifest (DPI awareness).
+    add_executable(RemotePlayWhatever WIN32 ${APPSRCs} "appresource.rc" "RemotePlayWhatever.manifest")
     add_custom_command(TARGET RemotePlayWhatever POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy ${OSW_DLL_PATH} $<TARGET_FILE_DIR:RemotePlayWhatever>
     )
