@@ -10,12 +10,17 @@
 > - a fresh Remote Play group check before every invite, and a question instead of a silent watch-only fallback when Steam won't create one
 > - the game that will be shared, and who's connected, shown at the top of the main window
 > - an "Everyone" row and in-game hotkeys: Ctrl+Alt+K / M / C turn keyboard / mouse / controller on or off for everyone, Ctrl+Alt+D takes all control, Ctrl+Alt+G gives it back
-> - a friend search box, and one window at a time
+> - a friend search box (it also finds what friends are playing), and one window at a time
 > - friends who appear offline are listed too (greyed out, below the online ones), so you can still invite someone who's invisible; the invite link reaches them in Steam chat
-> - a tray icon: minimizing hides the window by the clock, its right-click menu has the session buttons, and opening the app again brings the window back
+> - what each online friend is doing, under their name: "Playing <game>" (named by Steam even if you don't have the game), Online, Away or Busy
+> - "Played with recently" at the top of the friends list: up to 8 friends who've joined your sessions, most recent first
+> - invites nobody has used yet are listed in the main window with a Cancel button each, so one friend's invite or a guest link can be withdrawn without ending the session
+> - Ctrl+Alt+L copies a guest link from inside a game (it creates one if needed, for Steam games), with a notification instead of a window popping up
+> - while your whole screen is shared (non-Steam games), Remote Play Whatever's own windows, including the guest link, are left out of the picture guests see (Windows 10 2004 or later)
+> - a tray icon: minimizing hides the window by the clock, its right-click menu has the session buttons, and opening the app again brings the window back. "Start with Windows" in that menu opens it in the tray when you sign in (it waits for Steam to start)
 > - short sounds when a guest joins or leaves (turn them off from the tray menu), and what each friend may use (keyboard, mouse, controller) is remembered for the next time they join
-> - updates itself: it checks this fork's releases when it starts and every few hours, and when there's a newer version an "Update" button downloads it, checks it and restarts the app (not during a Remote Play session). The tray menu has "Check for updates" and a switch to turn the automatic checks off. If a Steam update ever stops it from starting, the message it shows looks for a fixed version and offers to install it
-> - fixes: Steam calls are checked before they're made (so a Steam update can't make it call the wrong function), clearer startup errors, and the control window no longer steals focus from a fullscreen game or keeps the app running after the main window is closed
+> - updates itself: it checks this fork's releases when it starts and every few hours, and when there's a newer version an "Update" button downloads it, checks it and restarts the app (not during a Remote Play session), with a line about what's new. The tray menu has "Check for updates" and a switch to turn the automatic checks off. If a Steam update ever stops it from starting, the message it shows looks for a fixed version and offers to install it
+> - fixes: Steam calls are checked before they're made (so a Steam update can't make it call the wrong function; the one call Steam gives no name for is guarded too), clearer startup errors, and the control window no longer steals focus from a fullscreen game or keeps the app running after the main window is closed
 
 # RemotePlayWhatever
 Tiny application that lets you force remote play together any game you have in your steam library including non-steam ones.
