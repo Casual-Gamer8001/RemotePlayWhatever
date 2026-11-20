@@ -296,6 +296,105 @@ namespace clientvt
         return map;
     }
 
+    // --- call a method by fixed vtable slot, defensively --------------------
+    //
+    // For an interface whose methods carry no names (IClientEngine), the slot
+    // from the OpenSteamworks declaration is all there is. If Valve reorders
+    // it, that slot holds some other method, so: the slot must point at code
+    // in the interface's own module, the call runs under a crash guard on
+    // Windows, and the result must be an object whose vtable is in that module
+    // too. Anything else is reported as a failure instead of crashing later.
+#if defined(_MSC_VER)
+    // SEH can't share a function with C++ objects that need unwinding, so
+    // these two only touch raw pointers.
+    inline bool ReadPointerSafely(const void* address, void** value)
+    {
+        __try
+        {
+            *value = *reinterpret_cast<void* const*>(address);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    typedef void* (*PipeGetterFn)(void* self, int32_t pipe);
+    inline bool CallGetterSafely(PipeGetterFn fn, void* self, int32_t pipe, void** result)
+    {
+        __try
+        {
+            *result = fn(self, pipe);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+#else
+    // No crash guard here; the module checks below still apply.
+    inline bool ReadPointerSafely(const void* address, void** value)
+    {
+        if (!address)
+            return false;
+        *value = *reinterpret_cast<void* const*>(address);
+        return true;
+    }
+
+    typedef void* (*PipeGetterFn)(void* self, int32_t pipe);
+    inline bool CallGetterSafely(PipeGetterFn fn, void* self, int32_t pipe, void** result)
+    {
+        *result = fn(self, pipe);
+        return true;
+    }
+#endif
+
+    // iface->slot(pipe) for a method returning another interface pointer.
+    inline bool CallPipeGetterAt(void* iface, int slot, int32_t pipe, void** result)
+    {
+        *result = NULL;
+        void* vtable = NULL;
+        void* first = NULL;
+        if (!iface || slot < 0 || !ReadPointerSafely(iface, &vtable) || !vtable || !ReadPointerSafely(vtable, &first))
+            return false;
+
+        std::vector<Segment> segs;
+        if (!ModuleSegments(first, segs))
+            return false;
+        const uintptr_t slotAddr = reinterpret_cast<uintptr_t>(vtable) + static_cast<uintptr_t>(slot) * sizeof(void*);
+        if (!Readable(segs, slotAddr, sizeof(void*)))
+        {
+            Log("[vt] slot %d is past the end of the vtable's module\n", slot);
+            return false;
+        }
+        void* fn = *reinterpret_cast<void**>(slotAddr);
+        if (!SegmentEndOf(segs, reinterpret_cast<uintptr_t>(fn)))
+        {
+            Log("[vt] slot %d doesn't point into the module (%p)\n", slot, fn);
+            return false;
+        }
+
+        void* got = NULL;
+        if (!CallGetterSafely(reinterpret_cast<PipeGetterFn>(fn), iface, pipe, &got))
+        {
+            Log("[vt] slot %d crashed when called\n", slot);
+            return false;
+        }
+        void* gotVtable = NULL;
+        void* gotFirst = NULL;
+        if (!got || !ReadPointerSafely(got, &gotVtable) || !ReadPointerSafely(gotVtable, &gotFirst) ||
+            !SegmentEndOf(segs, reinterpret_cast<uintptr_t>(gotVtable)) ||
+            !SegmentEndOf(segs, reinterpret_cast<uintptr_t>(gotFirst)))
+        {
+            Log("[vt] slot %d returned %p, which isn't an interface from the module\n", slot, got);
+            return false;
+        }
+        *result = got;
+        return true;
+    }
+
     // --- a bound interface you can call by method name ------------------------
     //
     // On x86-64 every calling convention (Windows x64 and System V) passes
