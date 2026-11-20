@@ -1,0 +1,10 @@
+#ifndef RPW_BUILDINFO_H
+#define RPW_BUILDINFO_H
+
+// Filled in by CMake (see CMakeLists.txt). Release builds made by GitHub
+// Actions set both; a local build has build number 0 and doesn't check for
+// updates.
+#define RPW_BUILD_NUMBER @RPW_BUILD_NUMBER@
+#define RPW_UPDATE_REPO "@RPW_UPDATE_REPO@"
+
+#endif // RPW_BUILDINFO_H

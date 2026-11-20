@@ -51,12 +51,29 @@ endif()
 
 
 
-find_package(wxWidgets COMPONENTS core base adv)
+if(${SYSTEM_OS} STREQUAL "Win")
+    # Release builds update themselves over HTTPS; wxWebRequest is in wx's net library.
+    find_package(wxWidgets COMPONENTS core base adv net)
+else()
+    find_package(wxWidgets COMPONENTS core base adv)
+endif()
 if(NOT wxWidgets_FOUND)
     message(FATAL_ERROR "wxWidgets not found!")
 endif()
 
 include(${wxWidgets_USE_FILE})
+
+# Release builds made by GitHub Actions know their build number and whose
+# releases they come from, so they can offer updates. Local builds (0) don't.
+set(RPW_BUILD_NUMBER 0 CACHE STRING "Release build number (0 = local build, no update checks)")
+set(RPW_UPDATE_REPO "" CACHE STRING "GitHub owner/repo whose releases this build updates itself from")
+if(NOT RPW_BUILD_NUMBER MATCHES "^[0-9]+$")
+    message(FATAL_ERROR "RPW_BUILD_NUMBER must be a number, not '${RPW_BUILD_NUMBER}'")
+endif()
+if(NOT RPW_UPDATE_REPO MATCHES "^([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?$")
+    message(FATAL_ERROR "RPW_UPDATE_REPO must look like owner/repo, not '${RPW_UPDATE_REPO}'")
+endif()
+configure_file(BuildInfo.h.in "${CMAKE_CURRENT_BINARY_DIR}/BuildInfo.h" @ONLY)
 
 set(APPSRCs "RemotePlayWhatever.cpp"
             "ClientVTableByName.h"
@@ -84,6 +101,8 @@ set(APPSRCs "RemotePlayWhatever.cpp"
             "UiHelpers.cpp"
             "TrayIcon.h"
             "TrayIcon.cpp"
+            "Updater.h"
+            "Updater.cpp"
 )
 
 
@@ -99,10 +118,11 @@ add_dependencies(RemotePlayWhatever OpenSteamAPI)
 
 target_compile_definitions(RemotePlayWhatever PRIVATE STEAMWORKS_CLIENT_INTERFACES)
 target_include_directories(RemotePlayWhatever PUBLIC ${OSW_INCLUDE_PATH} ${wxWidgets_INCLUDE_DIRS})
+target_include_directories(RemotePlayWhatever PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(RemotePlayWhatever ${OSW_LIB_PATH} ${wxWidgets_LIBRARIES})
 if(${SYSTEM_OS} STREQUAL "Win")
-    # PlaySound for the guest join/leave sounds.
-    target_link_libraries(RemotePlayWhatever winmm)
+    # PlaySound for the guest join/leave sounds; BCrypt (SHA-256) to check updates.
+    target_link_libraries(RemotePlayWhatever winmm bcrypt)
 endif()
 if(${SYSTEM_OS} STREQUAL "Linux")
     target_link_libraries(RemotePlayWhatever ${CMAKE_DL_LIBS})

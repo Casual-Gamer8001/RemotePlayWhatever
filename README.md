@@ -1,5 +1,5 @@
 >[!NOTE]
-> **About this fork.** This fork works with current Steam clients. **To install on Windows,** download `RemotePlayWhatever-win64.zip` from the [latest release](https://github.com/Casual-Gamer8001/RemotePlayWhatever/releases/latest), unzip it anywhere and run `RemotePlayWhatever.exe` (everything it needs is included). Every push is built by GitHub Actions.
+> **About this fork.** This fork works with current Steam clients. **To install on Windows,** download `RemotePlayWhatever-win64.zip` from the [latest release](https://github.com/Casual-Gamer8001/RemotePlayWhatever/releases/latest), unzip it anywhere and run `RemotePlayWhatever.exe` (everything it needs is included). From then on it keeps itself up to date: when a new version is published here, it offers a one-click update. Every push is built by GitHub Actions.
 >
 > It is upstream RemotePlayWhatever plus:
 > - the Steam-update fix from [pull request #289](https://github.com/m4dEngi/RemotePlayWhatever/pull/289) by @okabeeer: Steam's internal functions are looked up by name, so Steam updates don't break it, and invites create a real Remote Play Together group so guests can play, not just watch. **The fix only works in 64-bit builds** (`cmake -B build -A x64`).
@@ -14,6 +14,7 @@
 > - friends who appear offline are listed too (greyed out, below the online ones), so you can still invite someone who's invisible; the invite link reaches them in Steam chat
 > - a tray icon: minimizing hides the window by the clock, its right-click menu has the session buttons, and opening the app again brings the window back
 > - short sounds when a guest joins or leaves (turn them off from the tray menu), and what each friend may use (keyboard, mouse, controller) is remembered for the next time they join
+> - updates itself: it checks this fork's releases when it starts and every few hours, and when there's a newer version an "Update" button downloads it, checks it and restarts the app (not during a Remote Play session). The tray menu has "Check for updates" and a switch to turn the automatic checks off
 > - fixes: Steam calls are checked before they're made (so a Steam update can't make it call the wrong function), clearer startup errors, and the control window no longer steals focus from a fullscreen game or keeps the app running after the main window is closed
 
 # RemotePlayWhatever

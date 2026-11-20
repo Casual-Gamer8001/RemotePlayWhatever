@@ -2,6 +2,7 @@
 #include <wx/snglinst.h>
 #include <wx/taskbar.h>
 #include <wx/utils.h>
+#include "Updater.h"
 #include "RemoteApp.h"
 #include "wxSteamStuff.h"
 #include "FriendsListFrame.h"
@@ -20,6 +21,8 @@ static const wxCmdLineEntryDesc cmdLineDesc[] =
     { wxCMD_LINE_OPTION, "i", "invite",  "Send remote play invites to provided SteamID64s ( use 0 for guest link )", wxCMD_LINE_VAL_STRING },
     { wxCMD_LINE_OPTION, "g", "guestid", "Guest client id", wxCMD_LINE_VAL_NUMBER },
     { wxCMD_LINE_OPTION, "c", "cancel",  "Cancel invite for provided SteamID64 and GuestID", wxCMD_LINE_VAL_STRING },
+    { wxCMD_LINE_OPTION, nullptr, "updated-from", "process id of the copy that just updated this one",
+      wxCMD_LINE_VAL_NUMBER, wxCMD_LINE_HIDDEN },
     { wxCMD_LINE_NONE }
 };
 
@@ -31,7 +34,8 @@ RemoteApp::RemoteApp():
     m_oneshot(false),
     m_guestID(1),
     m_nonSteamID(0),
-    m_inviteToCancel(-1)
+    m_inviteToCancel(-1),
+    m_updatedFrom(0)
 {
 }
 
@@ -63,6 +67,13 @@ bool RemoteApp::OnInit()
     if (!wxApp::OnInit())
         return false;
 
+    // Started by an update: let the old copy finish closing first, or the
+    // single-instance check below would find it and give up.
+    if (!m_oneshot && m_updatedFrom)
+    {
+        AppUpdater::WaitForOldCopy(m_updatedFrom);
+    }
+
     // Only one window at a time; a second launch brings the open one back
     // (from the tray, if it's hidden there). Command-line invites (one-shot
     // mode) can still run alongside it.
@@ -93,6 +104,9 @@ bool RemoteApp::OnInit()
             m_singleInstance = nullptr;
             return false;
         }
+
+        // The only copy running: remove what an earlier update left behind.
+        AppUpdater::CleanUp();
     }
 
     if (!GClientContext()->Init())
@@ -150,6 +164,11 @@ int RemoteApp::OnRun()
         if (wxTaskBarIcon::IsAvailable())
         {
             m_friendsList->SetTray(new RpwTrayIcon(m_friendsList, m_controlFrame, m_inviteHandler));
+        }
+
+        if (m_updatedFrom)
+        {
+            m_friendsList->ShowNotice(wxString::Format("Updated to build %ld.", AppUpdater::CurrentBuild()));
         }
 
         return wxApp::OnRun();
@@ -244,6 +263,12 @@ bool RemoteApp::OnCmdLineParsed(wxCmdLineParser &parser)
     {
         m_oneshot = true;
         inviteeStr64.ToULongLong(&m_inviteToCancel);
+    }
+
+    long updatedFrom = 0;
+    if (parser.Found("updated-from", &updatedFrom) && updatedFrom > 0)
+    {
+        m_updatedFrom = (unsigned long)updatedFrom;
     }
 
     return wxApp::OnCmdLineParsed(parser);

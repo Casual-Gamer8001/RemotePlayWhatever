@@ -2,8 +2,9 @@ name: Build
 
 # Every push builds a 64-bit Windows package. Pushes to master publish it as
 # the latest release; pushes to other branches replace that branch's test
-# (pre-release) build, tagged branch-<name>. A Linux job checks that the code
-# still compiles there too.
+# (pre-release) build, tagged branch-<name>. Each release also gets an
+# update.txt (build number, tag, package name, SHA-256), which the app reads to
+# offer updates. A Linux job checks that the code still compiles there too.
 
 on:
   push:
@@ -49,7 +50,8 @@ jobs:
         shell: pwsh
         run: |
           $wx = (Resolve-Path wx).Path
-          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 "-DwxWidgets_ROOT_DIR=$wx" "-DwxWidgets_LIB_DIR=$wx/lib/vc14x_x64_dll" -DwxWidgets_CONFIGURATION=mswu
+          # The build number and repository let the app offer updates from this repository's releases.
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 "-DwxWidgets_ROOT_DIR=$wx" "-DwxWidgets_LIB_DIR=$wx/lib/vc14x_x64_dll" -DwxWidgets_CONFIGURATION=mswu "-DRPW_BUILD_NUMBER=$env:GITHUB_RUN_NUMBER" "-DRPW_UPDATE_REPO=$env:GITHUB_REPOSITORY"
           if ($LASTEXITCODE) { throw 'CMake configure failed' }
           cmake --build build --config Release -- /m /nologo /v:minimal
           if ($LASTEXITCODE) { throw 'Build failed' }
@@ -108,16 +110,18 @@ jobs:
         run: |
           $short = $env:GITHUB_SHA.Substring(0, 7)
           $subject = (git log -1 --format=%s).Trim()
+          $tag = if ($env:GITHUB_REF_NAME -eq 'master') { "build-$env:GITHUB_RUN_NUMBER" } else { 'branch-' + ($env:GITHUB_REF_NAME -replace '[^A-Za-z0-9._-]', '-') }
+          # What the app reads to find out whether there's a newer build, where it is and how to check it.
+          $hash = (Get-FileHash $env:PACKAGE -Algorithm SHA256).Hash.ToLowerInvariant()
+          "build=$env:GITHUB_RUN_NUMBER`ntag=$tag`nfile=$env:PACKAGE`nsha256=$hash`n" | Set-Content -Path update.txt -NoNewline -Encoding ascii
           if ($env:GITHUB_REF_NAME -eq 'master') {
-            $tag = "build-$env:GITHUB_RUN_NUMBER"
-            gh release create $tag $env:PACKAGE --target $env:GITHUB_SHA --latest `
+            gh release create $tag $env:PACKAGE update.txt --target $env:GITHUB_SHA --latest `
               --title "RemotePlayWhatever build $env:GITHUB_RUN_NUMBER ($short)" `
               --notes "Built from master at $env:GITHUB_SHA.`n`nLatest change: $subject"
           } else {
-            $tag = 'branch-' + ($env:GITHUB_REF_NAME -replace '[^A-Za-z0-9._-]', '-')
             gh release delete $tag --cleanup-tag --yes 2>$null
             $global:LASTEXITCODE = 0
-            gh release create $tag $env:PACKAGE --target $env:GITHUB_SHA --prerelease --latest=false `
+            gh release create $tag $env:PACKAGE update.txt --target $env:GITHUB_SHA --prerelease --latest=false `
               --title "Test build: $env:GITHUB_REF_NAME ($short)" `
               --notes "Test build of branch $env:GITHUB_REF_NAME at $env:GITHUB_SHA. Not for everyday use.`n`nLatest change: $subject"
           }
