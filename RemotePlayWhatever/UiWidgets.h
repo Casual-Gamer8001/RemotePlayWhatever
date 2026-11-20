@@ -68,6 +68,15 @@ namespace Ui
     // Title bar, scroll bars and tooltips of one top-level window in the
     // current theme (ApplyTheme does this for every window that exists).
     void ThemeNativeParts(wxWindow* topLevel);
+#ifdef __WXMSW__
+    // A frame's menu bar in dark mode (Windows only draws menu bars light):
+    // the frame's window procedure passes its messages here first (true =
+    // handled, *result set), and calls MenuBarLine after WM_NCPAINT and
+    // WM_NCACTIVATE, for the line Windows draws under the bar. In light mode
+    // both leave the menu bar to Windows.
+    bool MenuBarMessage(WXHWND hwnd, WXUINT msg, WXWPARAM wParam, WXLPARAM lParam, WXLRESULT* result);
+    void MenuBarLine(WXHWND hwnd);
+#endif
 
     // Characters of the Windows icon font (Segoe Fluent Icons / Segoe MDL2 Assets).
     const wchar_t kGlyphKeyboard = 0xE765;

@@ -414,7 +414,12 @@ long AppUpdater::CurrentBuild()
 
 wxString AppUpdater::ReleasesPage()
 {
-    return "https://github.com/" + Repo() + "/releases/latest";
+    return ProjectPage() + "/releases/latest";
+}
+
+wxString AppUpdater::ProjectPage()
+{
+    return "https://github.com/" + (Repo().empty() ? wxString("m4dEngi/RemotePlayWhatever") : Repo());
 }
 
 bool AppUpdater::AutoChecksEnabled()

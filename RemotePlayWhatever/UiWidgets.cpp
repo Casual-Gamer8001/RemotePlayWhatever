@@ -326,6 +326,55 @@ namespace
         }
         return TRUE;
     }
+
+    // Undocumented messages Windows sends to the window whose menu bar it's
+    // drawing (the bar, then each title), with the structures that come with
+    // them; wxWidgets 3.3 and Notepad++ draw dark menu bars the same way.
+    const UINT kUahDrawMenu = 0x0091;
+    const UINT kUahDrawMenuItem = 0x0092;
+
+    struct UahMenu
+    {
+        HMENU hmenu;
+        HDC hdc;
+        DWORD flags;
+    };
+
+    struct UahMenuItem
+    {
+        int position;               // of the title in the menu bar
+        DWORD metrics[8];
+        DWORD popupMetrics[5];
+    };
+
+    struct UahDrawMenuItem
+    {
+        DRAWITEMSTRUCT dis;         // its itemID isn't filled in
+        UahMenu um;
+        UahMenuItem umi;
+    };
+
+    void FillSolid(HDC dc, const RECT& rect, const wxColour& colour)
+    {
+        HBRUSH brush = ::CreateSolidBrush(RGB(colour.Red(), colour.Green(), colour.Blue()));
+        ::FillRect(dc, &rect, brush);
+        ::DeleteObject(brush);
+    }
+
+    // The menu bar in window coordinates (what the window DC uses).
+    bool MenuBarRect(HWND hwnd, RECT& bar)
+    {
+        MENUBARINFO info = {};
+        info.cbSize = sizeof(info);
+        RECT window = {};
+        if (!::GetMenu(hwnd) || !::GetMenuBarInfo(hwnd, OBJID_MENU, 0, &info) || !::GetWindowRect(hwnd, &window))
+        {
+            return false;
+        }
+        bar = info.rcBar;
+        ::OffsetRect(&bar, -window.left, -window.top);
+        return true;
+    }
 #endif
 }
 
@@ -400,11 +449,100 @@ void Ui::ThemeNativeParts(wxWindow* topLevel)
     {
         ThemeTitleBar((HWND)topLevel->GetHWND(), g_dark);
         ThemeScrollBars(topLevel, g_dark);
+        if (::GetMenu((HWND)topLevel->GetHWND()))
+        {
+            ::DrawMenuBar((HWND)topLevel->GetHWND());
+        }
     }
 #else
     wxUnusedVar(topLevel);
 #endif
 }
+
+#ifdef __WXMSW__
+bool Ui::MenuBarMessage(WXHWND window, WXUINT msg, WXWPARAM, WXLPARAM lParam, WXLRESULT* result)
+{
+    if (!g_dark || !lParam || (msg != kUahDrawMenu && msg != kUahDrawMenuItem))
+    {
+        return false;
+    }
+    HWND hwnd = (HWND)window;
+    if (msg == kUahDrawMenu)
+    {
+        const UahMenu* menu = (const UahMenu*)lParam;
+        RECT bar;
+        if (!MenuBarRect(hwnd, bar))
+        {
+            return false;
+        }
+        FillSolid(menu->hdc, bar, kWindow);
+    }
+    else
+    {
+        const UahDrawMenuItem* item = (const UahDrawMenuItem*)lParam;
+        wchar_t text[256] = {};
+        MENUITEMINFOW info = {};
+        info.cbSize = sizeof(info);
+        info.fMask = MIIM_STRING;
+        info.dwTypeData = text;
+        info.cch = 255;
+        if (item->dis.CtlType != ODT_MENU || !::GetMenuItemInfoW(item->um.hmenu, item->umi.position, TRUE, &info))
+        {
+            return false;
+        }
+        // Hovered, or open; greyed (like Windows' own bars) while the window
+        // isn't the active one.
+        const UINT state = item->dis.itemState;
+        const wxColour& fill = (state & ODS_SELECTED) ? kControlHover : (state & ODS_HOTLIGHT) ? kControl : kWindow;
+        const wxColour& colour = (state & (ODS_GRAYED | ODS_DISABLED)) ? kDisabledText :
+                                 (state & ODS_INACTIVE) ? kTextSecondary : kText;
+        HDC dc = item->um.hdc;
+        RECT rect = item->dis.rcItem;
+        FillSolid(dc, rect, fill);
+        ::SetBkMode(dc, TRANSPARENT);
+        ::SetTextColor(dc, RGB(colour.Red(), colour.Green(), colour.Blue()));
+        // The DC comes with the menu font; the underlined letters only show
+        // when the keyboard is being used (Alt).
+        UINT flags = DT_CENTER | DT_SINGLELINE | DT_VCENTER;
+        if (state & ODS_NOACCEL)
+        {
+            flags |= DT_HIDEPREFIX;
+        }
+        ::DrawTextW(dc, text, -1, &rect, flags);
+    }
+    *result = 0;
+    return true;
+}
+
+void Ui::MenuBarLine(WXHWND window)
+{
+    // Between the bar and the window's content: from the bottom of the bar
+    // to the top of the client area.
+    HWND hwnd = (HWND)window;
+    RECT bar;
+    if (!g_dark || !MenuBarRect(hwnd, bar))
+    {
+        return;
+    }
+    RECT client = {}, windowRect = {};
+    ::GetClientRect(hwnd, &client);
+    ::MapWindowPoints(hwnd, nullptr, (POINT*)&client, 2);
+    ::GetWindowRect(hwnd, &windowRect);
+    RECT line = bar;
+    line.top = bar.bottom;
+    line.bottom = client.top - windowRect.top;
+    if (line.bottom <= line.top)
+    {
+        return;
+    }
+    HDC dc = ::GetWindowDC(hwnd);
+    if (dc)
+    {
+        FillSolid(dc, line, kWindow);
+        ::ReleaseDC(hwnd, dc);
+    }
+}
+#endif
 
 void Ui::ApplyTheme(bool dark)
 {
