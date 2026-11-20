@@ -3,6 +3,7 @@
 #include <wx/taskbar.h>
 #include <wx/utils.h>
 #include "Updater.h"
+#include "UpdateNeededDialog.h"
 #include "RemoteApp.h"
 #include "wxSteamStuff.h"
 #include "FriendsListFrame.h"
@@ -124,6 +125,17 @@ bool RemoteApp::OnInit()
         default:
             why = "Steam isn't running. Start Steam and sign in, then open Remote Play Whatever again.";
             break;
+        }
+
+        // The fix for a Steam change is a newer version, and the main window's
+        // Update button is out of reach, so look for one right away.
+        if (!m_oneshot && GClientContext()->InitError() == ClientContext::InitMethodsMissing &&
+            AppUpdater::Supported())
+        {
+            std::cout << "Error: Could not initialize steam client library! " << why.utf8_str().data() << std::endl;
+            UpdateNeededDialog dialog(why);
+            dialog.ShowModal();
+            return false;
         }
 
 #ifndef _WIN32

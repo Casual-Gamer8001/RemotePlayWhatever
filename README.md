@@ -14,7 +14,7 @@
 > - friends who appear offline are listed too (greyed out, below the online ones), so you can still invite someone who's invisible; the invite link reaches them in Steam chat
 > - a tray icon: minimizing hides the window by the clock, its right-click menu has the session buttons, and opening the app again brings the window back
 > - short sounds when a guest joins or leaves (turn them off from the tray menu), and what each friend may use (keyboard, mouse, controller) is remembered for the next time they join
-> - updates itself: it checks this fork's releases when it starts and every few hours, and when there's a newer version an "Update" button downloads it, checks it and restarts the app (not during a Remote Play session). The tray menu has "Check for updates" and a switch to turn the automatic checks off
+> - updates itself: it checks this fork's releases when it starts and every few hours, and when there's a newer version an "Update" button downloads it, checks it and restarts the app (not during a Remote Play session). The tray menu has "Check for updates" and a switch to turn the automatic checks off. If a Steam update ever stops it from starting, the message it shows looks for a fixed version and offers to install it
 > - fixes: Steam calls are checked before they're made (so a Steam update can't make it call the wrong function), clearer startup errors, and the control window no longer steals focus from a fullscreen game or keeps the app running after the main window is closed
 
 # RemotePlayWhatever
