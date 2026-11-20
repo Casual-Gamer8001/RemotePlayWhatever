@@ -1,6 +1,7 @@
 #ifndef FRIENDSLISTFRAME_H
 #define FRIENDSLISTFRAME_H
 #include <map>
+#include <set>
 #include <wx/wx.h>
 #include "FriendPanel.h"
 #include "RemotePlayInviteHandler.h"
@@ -54,12 +55,17 @@ private:
     RemotePlayInviteHandler* m_pRemoteInvite;
     wxScrolledWindow* m_friendsListContainer;
     wxBoxSizer* m_friendsListSizer;
+    wxBoxSizer* m_recentSizer;
     wxBoxSizer* m_onlineSizer;
     wxBoxSizer* m_offlineSizer;
+    wxStaticText* m_recentLabel;
     wxStaticText* m_onlineLabel;
     wxStaticText* m_offlineLabel;
 
     std::map<uint64, FriendPanel*> m_friendPanels;
+    // "Played with recently": when friends last joined, and who's shown there.
+    std::map<uint64, long> m_joinTimes;
+    std::set<uint64> m_recentIDs;
 
     void OnFriendPanelClick(wxCommandEvent& event);
     void ConfirmFriendInvite(CSteamID invitee, const wxString& name, bool online);
@@ -89,6 +95,7 @@ private:
     int m_statusRefreshTicks;
     bool m_askingGroupFallback;
     bool m_inviteQueued;
+    uint32 m_rosterSeen;
 
     STEAM_CALLBACK(FriendsListFrame, OnRemotePlayInviteResult, RemotePlayInviteResult_t, m_remoteInviteResultCb);
     STEAM_CALLBACK(FriendsListFrame, OnPersonaStateChange, PersonaStateChange_t, m_personaStateCb);

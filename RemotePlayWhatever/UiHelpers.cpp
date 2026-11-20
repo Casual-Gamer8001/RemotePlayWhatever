@@ -7,6 +7,7 @@
 #endif
 #include <wx/bitmap.h>
 #include <wx/config.h>
+#include <wx/datetime.h>
 #include <wx/icon.h>
 #include <wx/image.h>
 #include <wx/utils.h>
@@ -77,7 +78,8 @@ bool LoadGuestControls(uint64 steamID, bool& kbd, bool& mouse, bool& ctrl)
 {
     wxConfigBase* config = wxConfigBase::Get();
     wxString path = GuestKeyPath(steamID);
-    if (!steamID || !config || !config->HasGroup(path))
+    // The friend's key can also hold just LastJoined; only saved choices count.
+    if (!steamID || !config || !config->HasEntry(path + "/Keyboard"))
     {
         return false;
     }
@@ -99,4 +101,40 @@ void SaveGuestControls(uint64 steamID, bool kbd, bool mouse, bool ctrl)
     config->Write(path + "/Mouse", mouse);
     config->Write(path + "/Controller", ctrl);
     config->Flush();
+}
+
+void SaveGuestJoined(uint64 steamID)
+{
+    wxConfigBase* config = wxConfigBase::Get();
+    if (!steamID || !config)
+    {
+        return;
+    }
+    config->Write(GuestKeyPath(steamID) + "/LastJoined", (long)wxDateTime::Now().GetTicks());
+    config->Flush();
+}
+
+std::map<uint64, long> LoadGuestJoinTimes()
+{
+    std::map<uint64, long> times;
+    wxConfigBase* config = wxConfigBase::Get();
+    if (!config || !config->HasGroup("/Guests"))
+    {
+        return times;
+    }
+    const wxString oldPath = config->GetPath();
+    config->SetPath("/Guests");
+    wxString group;
+    long index = 0;
+    for (bool more = config->GetFirstGroup(group, index); more; more = config->GetNextGroup(group, index))
+    {
+        unsigned long long id = 0;
+        long when = 0;
+        if (group.ToULongLong(&id) && id && config->Read(group + "/LastJoined", &when) && when > 0)
+        {
+            times[(uint64)id] = when;
+        }
+    }
+    config->SetPath(oldPath);
+    return times;
 }
