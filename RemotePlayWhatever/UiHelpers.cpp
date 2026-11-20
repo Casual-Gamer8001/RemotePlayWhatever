@@ -276,3 +276,32 @@ void RefreshStartWithWindows()
     }
 #endif
 }
+
+bool CtrlAltKeyIsFree(int key)
+{
+#ifdef __WXMSW__
+    HKL layouts[32];
+    const int count = ::GetKeyboardLayoutList(32, layouts);
+    // AltGr arrives as left Ctrl + right Alt.
+    BYTE state[256] = {};
+    state[VK_CONTROL] = state[VK_LCONTROL] = 0x80;
+    state[VK_MENU] = state[VK_RMENU] = 0x80;
+    for (int i = 0; i < count; ++i)
+    {
+        const UINT scan = ::MapVirtualKeyExW((UINT)key, MAPVK_VK_TO_VSC, layouts[i]);
+        WCHAR typed[8] = {};
+        // Flag 4: don't disturb the keyboard state (dead keys) while asking.
+        const int n = ::ToUnicodeEx((UINT)key, scan, state, typed, 8, 4, layouts[i]);
+        // A character (or a dead key) means AltGr+key is in use there; a
+        // control code like Ctrl+L's is harmless.
+        if (n < 0 || (n > 0 && typed[0] >= 0x20))
+        {
+            return false;
+        }
+    }
+    return true;
+#else
+    wxUnusedVar(key);
+    return true;
+#endif
+}

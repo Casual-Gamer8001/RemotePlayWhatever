@@ -39,4 +39,10 @@ void SetStartWithWindows(bool on);
 // at this one.
 void RefreshStartWithWindows();
 
+// Whether Ctrl+Alt+<key> (a virtual-key code such as 'L') is free to use as a
+// global shortcut. Windows reports AltGr as Ctrl+Alt, so on layouts where
+// AltGr+<key> types something (Polish AltGr+L is "ł"), a hotkey would swallow
+// that character in every app. Checks every keyboard layout the user has.
+bool CtrlAltKeyIsFree(int key);
+
 #endif // UIHELPERS_H

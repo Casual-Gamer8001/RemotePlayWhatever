@@ -2,6 +2,8 @@
 #define REMOTEPLAYINVITEHANDLER_H
 
 #include <Steamworks.h>
+#include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -72,8 +74,9 @@ public:
     // Disconnect one guest (their invite is cancelled too, so they can't rejoin
     // with it). Others stay connected.
     void RemoveGuest(uint64 key);
-    // The current session's guest link (with https://), or empty if none.
-    const std::string& GuestLink() const { return m_guestLink; }
+    // The newest guest link (with https://) that nobody has used or
+    // cancelled, or empty if there's none.
+    std::string GuestLink() const;
 
     // Invites sent this session that nobody has used yet (a friend who
     // hasn't joined, or a guest link nobody has opened).
@@ -133,7 +136,10 @@ private:
     uint64 m_sessionGame;       // game the current session is for (CGameID)
     int m_sessionGameGoneTicks;
     std::string m_notice;
-    std::string m_guestLink;
+    // Each guest link's URL, by the guest slot its invite reserved, and the
+    // slots of links someone has already come in with.
+    std::map<uint32, std::string> m_linkURLs;
+    std::set<uint32> m_takenLinks;
 
     std::vector<ConnectedGuest> m_guests;
     uint32 m_rosterRevision;

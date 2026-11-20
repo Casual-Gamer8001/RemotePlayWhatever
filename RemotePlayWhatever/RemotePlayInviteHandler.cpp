@@ -232,7 +232,8 @@ void RemotePlayInviteHandler::ResetSession()
     m_pending.clear();
     m_invited.clear();
     m_guests.clear();
-    m_guestLink.clear();
+    m_linkURLs.clear();
+    m_takenLinks.clear();
     ++m_rosterRevision;
 }
 
@@ -256,12 +257,17 @@ void RemotePlayInviteHandler::RemoveGuest(uint64 key)
         }
         rcm->CancelRemotePlayInviteAndSession(g.player);
 
-        // A friend's own invite would let them straight back in; cancel it too.
+        // A friend's own invite would let them straight back in, and so would
+        // the guest link this guest came in with; cancel those too.
         for (size_t j = 0; j < m_invited.size();)
         {
-            if (g.steamID && m_invited[j].m_playerID.ConvertToUint64() == g.steamID)
+            const RemotePlayPlayer_t& sent = m_invited[j];
+            const bool theirLink = sent.m_playerID.GetAccountID() == 0 && sent.m_unGuestID == g.player.m_unGuestID;
+            if ((g.steamID && sent.m_playerID.ConvertToUint64() == g.steamID) || theirLink)
             {
-                rcm->CancelRemotePlayInviteAndSession(m_invited[j]);
+                rcm->CancelRemotePlayInviteAndSession(sent);
+                m_linkURLs.erase(sent.m_unGuestID);
+                m_takenLinks.erase(sent.m_unGuestID);
                 m_invited.erase(m_invited.begin() + j);
             }
             else
@@ -281,8 +287,9 @@ std::vector<RemotePlayInviteHandler::WaitingInvite> RemotePlayInviteHandler::Wai
         const RemotePlayPlayer_t& sent = m_invited[i];
         const uint64 friendID = sent.m_playerID.GetAccountID() != 0 ? sent.m_playerID.ConvertToUint64() : 0;
         // A guest takes the slot their invite reserved; a friend can also be
-        // recognised by their SteamID.
-        bool used = false;
+        // recognised by their SteamID. A guest link someone has come in with
+        // stays used after they leave.
+        bool used = !friendID && m_takenLinks.count(sent.m_unGuestID) != 0;
         for (size_t g = 0; g < m_guests.size() && !used; ++g)
         {
             used = m_guests[g].player.m_unGuestID == sent.m_unGuestID || (friendID && m_guests[g].steamID == friendID);
@@ -298,6 +305,23 @@ std::vector<RemotePlayInviteHandler::WaitingInvite> RemotePlayInviteHandler::Wai
     return waiting;
 }
 
+std::string RemotePlayInviteHandler::GuestLink() const
+{
+    const std::vector<WaitingInvite> waiting = WaitingInvites();
+    for (size_t i = waiting.size(); i > 0; --i)
+    {
+        if (!waiting[i - 1].steamID)
+        {
+            std::map<uint32, std::string>::const_iterator url = m_linkURLs.find(waiting[i - 1].guestID);
+            if (url != m_linkURLs.end() && !url->second.empty())
+            {
+                return url->second;
+            }
+        }
+    }
+    return std::string();
+}
+
 void RemotePlayInviteHandler::CancelWaitingInvite(uint64 steamID, uint32 guestID)
 {
     for (size_t i = 0; i < m_invited.size(); ++i)
@@ -311,19 +335,9 @@ void RemotePlayInviteHandler::CancelWaitingInvite(uint64 steamID, uint32 guestID
 
         GClientContext()->RemoteClientManager()->CancelRemotePlayInviteAndSession(sent);
         m_invited.erase(m_invited.begin() + i);
+        m_linkURLs.erase(sent.m_unGuestID);
+        m_takenLinks.erase(sent.m_unGuestID);
         ++m_rosterRevision;
-        if (link)
-        {
-            bool otherLink = false;
-            for (size_t j = 0; j < m_invited.size(); ++j)
-            {
-                otherLink = otherLink || m_invited[j].m_playerID.GetAccountID() == 0;
-            }
-            if (!otherLink)
-            {
-                m_guestLink.clear();
-            }
-        }
 
         std::string notice = link ? "The guest link was cancelled, so it no longer works." : "The invite was cancelled.";
         // Nothing left to share, so don't keep the screen shared for nobody.
@@ -590,6 +604,14 @@ void RemotePlayInviteHandler::OnRemotePlayStart(RemoteClientStartStreamSession_t
     PlayGuestSound(true);
     // For the friends list's "Played with recently" group.
     SaveGuestJoined(g.steamID);
+    // A guest link is used up once someone has come in with it.
+    for (size_t i = 0; i < m_invited.size(); ++i)
+    {
+        if (m_invited[i].m_playerID.GetAccountID() == 0 && m_invited[i].m_unGuestID == g.player.m_unGuestID)
+        {
+            m_takenLinks.insert(g.player.m_unGuestID);
+        }
+    }
 
     if (g.steamID)
     {
@@ -611,7 +633,30 @@ void RemotePlayInviteHandler::OnRemotePlayInviteResult(RemotePlayInviteResult_t*
         }
         else
         {
-            m_guestLink = ClickableURL(inviteResultCb->m_szConnectURL);
+            // Which link this is: the guest slot Steam names, or else the
+            // newest link invite that doesn't have its URL yet.
+            uint32 slot = 0;
+            for (size_t i = 0; i < m_invited.size(); ++i)
+            {
+                if (m_invited[i].m_playerID.GetAccountID() == 0 && inviteResultCb->m_player.m_unGuestID &&
+                    m_invited[i].m_unGuestID == inviteResultCb->m_player.m_unGuestID)
+                {
+                    slot = m_invited[i].m_unGuestID;
+                }
+            }
+            for (size_t i = m_invited.size(); i > 0 && !slot; --i)
+            {
+                const RemotePlayPlayer_t& sent = m_invited[i - 1];
+                if (sent.m_playerID.GetAccountID() == 0 && !m_linkURLs.count(sent.m_unGuestID))
+                {
+                    slot = sent.m_unGuestID;
+                }
+            }
+            if (slot)
+            {
+                m_linkURLs[slot] = ClickableURL(inviteResultCb->m_szConnectURL);
+                ++m_rosterRevision;
+            }
         }
         GClientContext()->RemoteClientManager()->ShowRemotePlayTogetherUI(GetRunningGameID().AppID());
     }

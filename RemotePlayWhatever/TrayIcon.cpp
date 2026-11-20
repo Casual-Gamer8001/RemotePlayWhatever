@@ -102,7 +102,7 @@ wxMenu* RpwTrayIcon::CreatePopupMenu()
     menu->Append(idTrayOpen, "Open Remote Play Whatever");
     menu->Append(idTrayControls, "Show guest controls");
     menu->AppendSeparator();
-    menu->Append(idTrayCopyLink, m_main->HasGuestLinkHotKey() ? "Copy guest link\tCtrl+Alt+L" : "Copy guest link")
+    menu->Append(idTrayCopyLink, m_main->GuestLinkHotKeyUsable() ? "Copy guest link\tCtrl+Alt+L" : "Copy guest link")
         ->Enable(!m_handler->GuestLink().empty());
     menu->Append(idTrayEndSession, "End session")->Enable(m_handler->IsSessionActive());
     menu->AppendSeparator();

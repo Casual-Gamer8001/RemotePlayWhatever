@@ -37,8 +37,9 @@ public:
     // A short message in the status line, e.g. after an update.
     void ShowNotice(const wxString& text);
 
-    // Ctrl+Alt+L (copy or create a guest link from inside a game) is ours.
-    bool HasGuestLinkHotKey() const { return m_guestLinkHotKey; }
+    // Ctrl+Alt+L (copy or create a guest link from inside a game) can be
+    // used with this keyboard layout; it's held while a game or session runs.
+    bool GuestLinkHotKeyUsable() const { return m_guestLinkKeyUsable; }
 
 #ifdef __WXMSW__
     // A second copy of the app asks this one to show itself with a registered
@@ -85,6 +86,7 @@ private:
     void OnUpdaterChange();
     void RefreshUpdateButton();
     void OnGuestLinkHotKey();
+    void UpdateGuestLinkHotKey();
     bool HotKeyLinkPending() const;
     // Tray notification plus a sound, for when the host is in the game.
     void Announce(const wxString& title, const wxString& text, bool ok = true);
@@ -109,7 +111,9 @@ private:
     bool m_askingGroupFallback;
     bool m_inviteQueued;
     uint32 m_rosterSeen;
-    bool m_guestLinkHotKey;
+    bool m_guestLinkKeyUsable;      // Ctrl+Alt+L doesn't type anything here
+    bool m_guestLinkHotKey;         // ...and is registered right now
+    wxLongLong m_guestLinkKeyRetryAt;
     wxLongLong m_hotKeyLinkSince;   // when Ctrl+Alt+L asked Steam for a link (0 = not waiting)
 
     STEAM_CALLBACK(FriendsListFrame, OnRemotePlayInviteResult, RemotePlayInviteResult_t, m_remoteInviteResultCb);
