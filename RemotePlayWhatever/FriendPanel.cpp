@@ -1,4 +1,5 @@
 #include "wxSteamStuff.h"
+#include "GameInfo.h"
 #include "FriendPanel.h"
 
 FriendPanel::FriendPanel(wxWindow* parent, wxWindowID winID, CSteamID friendID):
@@ -7,6 +8,7 @@ FriendPanel::FriendPanel(wxWindow* parent, wxWindowID winID, CSteamID friendID):
     m_personaStateLabel(nullptr),
     m_steamID(friendID),
     m_online(true),
+    m_inGame(false),
     m_requestedInfo(false)
 {
     wxBoxSizer* rootSizer = new wxBoxSizer( wxHORIZONTAL );
@@ -20,7 +22,14 @@ FriendPanel::FriendPanel(wxWindow* parent, wxWindowID winID, CSteamID friendID):
 
     textSizer->Add( 0, 0, 1, wxEXPAND, 5 );
     m_personaNameLabel = new wxStaticText(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0 );
-    textSizer->Add( m_personaNameLabel, 0, wxALL | wxEXPAND, 5 );
+    textSizer->Add( m_personaNameLabel, 0, wxLEFT | wxRIGHT | wxEXPAND, 5 );
+
+    // What they're doing, in smaller text; long game names end in "...".
+    m_personaStateLabel = new wxStaticText(this, wxID_ANY, "Online", wxDefaultPosition, wxDefaultSize,
+                                           wxST_NO_AUTORESIZE | wxST_ELLIPSIZE_END);
+    m_personaStateLabel->SetFont(m_personaStateLabel->GetFont().Smaller());
+    m_personaStateLabel->SetMinSize(wxSize(FromDIP(20), m_personaStateLabel->GetBestSize().GetHeight()));
+    textSizer->Add( m_personaStateLabel, 0, wxLEFT | wxRIGHT | wxTOP | wxEXPAND, 2 );
 
     textSizer->Add( 0, 0, 1, wxEXPAND, 5 );
     rootSizer->Add( textSizer, 1, wxALL|wxEXPAND, 5 );
@@ -77,11 +86,84 @@ void FriendPanel::UpdatePersona()
 
     m_personaNameLabel->SetForegroundColour(NormalForeground());
     m_personaNameLabel->Refresh();
+    UpdateStatusLine();
+}
+
+void FriendPanel::UpdateStatusLine()
+{
+    if (!m_steamID.IsValid())
+    {
+        return;
+    }
+
+    ISteamFriends015* friends = GClientContext()->SteamFriends();
+    wxString status;
+    m_inGame = false;
+    if (m_online)
+    {
+        FriendGameInfo_t game;
+        if (friends->GetFriendGamePlayed(m_steamID, &game) && game.m_gameID.IsValid())
+        {
+            m_inGame = true;
+            const wxString name = GetFriendGameName(game.m_gameID);
+            if (!name.empty())
+            {
+                status = "Playing " + name;
+            }
+            else
+            {
+                status = game.m_gameID.IsShortcut() ? "Playing a non-Steam game" : "In a game";
+            }
+        }
+        else
+        {
+            switch (friends->GetFriendPersonaState(m_steamID))
+            {
+            case k_EPersonaStateBusy:           status = "Busy"; break;
+            case k_EPersonaStateAway:
+            case k_EPersonaStateSnooze:         status = "Away"; break;
+            case k_EPersonaStateLookingToTrade: status = "Looking to trade"; break;
+            case k_EPersonaStateLookingToPlay:  status = "Looking to play"; break;
+            default:                            status = "Online"; break;
+            }
+        }
+    }
+
+    bool relayout = false;
+    if (m_personaStateLabel->GetLabel() != status)
+    {
+        m_personaStateLabel->SetLabel(status);
+        m_personaStateLabel->SetToolTip(status);
+        relayout = true;
+    }
+    if (m_personaStateLabel->IsShown() != !status.empty())
+    {
+        m_personaStateLabel->Show(!status.empty());
+        relayout = true;
+    }
+    m_personaStateLabel->SetForegroundColour(StatusForeground());
+    m_personaStateLabel->Refresh();
+    if (relayout)
+    {
+        Layout();
+    }
 }
 
 wxColour FriendPanel::NormalForeground() const
 {
     return wxSystemSettings::GetColour(m_online ? wxSYS_COLOUR_WINDOWTEXT : wxSYS_COLOUR_GRAYTEXT);
+}
+
+wxColour FriendPanel::StatusForeground() const
+{
+    // In a game in green, like Steam's friends list; anything else in grey.
+    return m_inGame ? wxColour(60, 125, 30) : wxSystemSettings::GetColour(wxSYS_COLOUR_GRAYTEXT);
+}
+
+void FriendPanel::RestoreForeground()
+{
+    m_personaNameLabel->SetForegroundColour(NormalForeground());
+    m_personaStateLabel->SetForegroundColour(StatusForeground());
 }
 
 CSteamID FriendPanel::GetSteamID()

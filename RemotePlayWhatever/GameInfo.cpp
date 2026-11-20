@@ -6,11 +6,14 @@
 #include <wx/ffile.h>
 #include <wx/filefn.h>
 #include <wx/filename.h>
+#include <wx/time.h>
 #include <wx/utils.h>
 #ifdef __WXMSW__
+#include <wx/msw/wrapwin.h>
 #include <wx/msw/registry.h>
 #endif
 #include "GameInfo.h"
+#include "SteamStuff.h"
 
 static std::string ReadTextFile(const wxString& path)
 {
@@ -299,4 +302,42 @@ wxString GetGameName(CGameID game, uint32 accountID)
         return GetShortcutName(game.ModID(), accountID);
     }
     return wxString();
+}
+
+wxString GetFriendGameName(CGameID game)
+{
+    if (!game.IsValid() || !game.IsSteamApp())
+    {
+        return wxString();
+    }
+    const AppId_t appID = game.AppID();
+    static std::map<AppId_t, wxString> known;
+    static std::map<AppId_t, wxLongLong> askedAt;
+    auto it = known.find(appID);
+    if (it != known.end())
+    {
+        return it->second;
+    }
+    const wxLongLong now = wxGetLocalTimeMillis();
+    auto asked = askedAt.find(appID);
+    if (asked != askedAt.end() && now - asked->second < 60000)
+    {
+        return wxString();
+    }
+    askedAt[appID] = now;
+
+    wxString name = wxString::FromUTF8(GClientContext()->AppName(appID).c_str());
+    if (name.empty())
+    {
+        const wxString local = GetSteamAppName(appID);
+        if (local != wxString::Format("App %u", (unsigned)appID))
+        {
+            name = local;
+        }
+    }
+    if (!name.empty())
+    {
+        known[appID] = name;
+    }
+    return name;
 }

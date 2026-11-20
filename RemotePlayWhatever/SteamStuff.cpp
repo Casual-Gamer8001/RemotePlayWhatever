@@ -10,6 +10,7 @@ ClientContext::ClientContext():
     m_pSteamUser(nullptr),
     m_pSteamFriends(nullptr),
     m_pSteamUtils(nullptr),
+    m_pSteamApps001(nullptr),
     m_pClientEngine(nullptr),
     m_ShuttingDown(false),
     m_Initialized(false),
@@ -74,6 +75,10 @@ bool ClientContext::Init()
     {
         return false;
     }
+
+    // Optional (game names in the friends list): the oldest SteamApps interface,
+    // kept for old games, still reads Steam's own information about any app.
+    m_pSteamApps001 = (ISteamApps001*)m_pSteamClient->GetISteamApps(m_hUser, m_hPipe, STEAMAPPS_INTERFACE_VERSION_001);
 
     m_pClientEngine = (IClientEngine*)SteamInternal_CreateInterface(CLIENTENGINE_INTERFACE_VERSION);
     if (!m_pClientEngine)
@@ -144,6 +149,25 @@ ISteamFriends015* ClientContext::SteamFriends()
 ISteamUtils009 *ClientContext::SteamUtils()
 {
     return m_pSteamUtils;
+}
+
+std::string ClientContext::AppName(AppId_t appID)
+{
+    if (!m_pSteamApps001 || !appID)
+    {
+        return std::string();
+    }
+    static const char* const keys[] = { "name", "common/name" };
+    for (const char* key : keys)
+    {
+        char name[256] = {};
+        if (m_pSteamApps001->GetAppData(appID, key, name, sizeof(name)) > 0 && name[0])
+        {
+            name[sizeof(name) - 1] = '\0';
+            return std::string(name);
+        }
+    }
+    return std::string();
 }
 
 void ClientContext::RunCallbacks()

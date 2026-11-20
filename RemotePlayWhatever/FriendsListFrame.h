@@ -86,6 +86,7 @@ private:
     wxLongLong m_noticeUntil;
     wxLongLong m_copiedUntil;
     wxTimer m_tick;
+    int m_statusRefreshTicks;
     bool m_askingGroupFallback;
     bool m_inviteQueued;
 

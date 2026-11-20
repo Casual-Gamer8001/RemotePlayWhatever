@@ -140,6 +140,10 @@ public:
     ISteamFriends015* SteamFriends();
     ISteamUtils009* SteamUtils();
 
+    // Steam's name for any game it has information about (including ones that
+    // aren't installed here), or empty. Uses the public SteamApps001 interface.
+    std::string AppName(AppId_t appID);
+
     CRemoteClientManagerByName* RemoteClientManager();
 
     bool Init();
@@ -155,6 +159,7 @@ private:
     ISteamUser019* m_pSteamUser;
     ISteamFriends015* m_pSteamFriends;
     ISteamUtils009* m_pSteamUtils;
+    ISteamApps001* m_pSteamApps001;
 
     IClientEngine* m_pClientEngine;
     CRemoteClientManagerByName m_remoteManager;

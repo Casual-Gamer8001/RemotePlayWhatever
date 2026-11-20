@@ -64,7 +64,7 @@ void ClickablePanel::OnMouseLeave(wxMouseEvent &event)
     }
 
     SetBackgroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW));
-    RSetForegroundColour(NormalForeground());
+    RestoreForeground();
     Refresh();
 }
 
@@ -77,7 +77,7 @@ void ClickablePanel::OnMouseLeftDown(wxMouseEvent &event)
 void ClickablePanel::OnMouseLeftUp(wxMouseEvent &event)
 {
     SetBackgroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW));
-    RSetForegroundColour(NormalForeground());
+    RestoreForeground();
     Refresh();
 
     wxCommandEvent outEvt(BTN_PANEL_LEFT_CLICK, GetId());
@@ -88,6 +88,11 @@ void ClickablePanel::OnMouseLeftUp(wxMouseEvent &event)
 wxColour ClickablePanel::NormalForeground() const
 {
     return wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT);
+}
+
+void ClickablePanel::RestoreForeground()
+{
+    RSetForegroundColour(NormalForeground());
 }
 
 
