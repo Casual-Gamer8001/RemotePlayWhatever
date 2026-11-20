@@ -22,6 +22,9 @@ static const int kHotKeyGuestLink = 0xB010;
 // Saved setting: whether the friends list shows the friends who are offline.
 static const char* const kShowOfflineKey = "/Options/ShowOfflineFriends";
 
+// Guests don't need Steam: a guest link works with the free Steam Link app.
+static const char* const kLinkForAnyone = "Anyone can join with it, even without a Steam account, using the free Steam Link app.";
+
 // Menu bar commands (Exit and About have the standard ids).
 enum
 {
@@ -837,9 +840,10 @@ void FriendsListFrame::UpdateStatus()
     {
         label = "Create guest link";
         kind = FlatButton::Primary;
-        tip = !hasGame ? wxString("Start a game through Steam first.") :
-              m_guestLinkKeyUsable ? wxString("A link anyone can use to join. While you're in the game, Ctrl+Alt+L copies one too.")
-                                   : wxString("A link anyone can use to join.");
+        const wxString anyone = "A link anyone can use to join, even without a Steam account (with the free "
+                                "Steam Link app). One person per link.";
+        tip = !hasGame ? "Start a game through Steam first. " + anyone :
+              m_guestLinkKeyUsable ? anyone + " While you're in the game, Ctrl+Alt+L copies one too." : anyone;
     }
     else if (hasLink)
     {
@@ -850,7 +854,7 @@ void FriendsListFrame::UpdateStatus()
     else
     {
         label = "New guest link";
-        tip = "Create another guest link for this session.";
+        tip = "Create another guest link for this session: each link lets one person in.";
     }
     const bool creating = m_linkRequestedAt != 0;
     if (creating)
@@ -1564,7 +1568,7 @@ void FriendsListFrame::OnRemotePlayInviteResult(RemotePlayInviteResult_t* invite
     {
         // No link in the notification: guests may be watching the whole screen.
         Announce(copied ? "Guest link copied" : "Guest link created",
-                 copied ? wxString("Paste it to whoever you want to play with. Anyone with the link can join.")
+                 copied ? "Paste it to whoever you want to play with. " + wxString(kLinkForAnyone)
                         : wxString("Copy it from Remote Play Whatever's window or its tray menu."),
                  copied);
         UpdateStatus();
@@ -1572,11 +1576,11 @@ void FriendsListFrame::OnRemotePlayInviteResult(RemotePlayInviteResult_t* invite
     }
     if (copied)
     {
-        ShowNotice("Guest link copied. Paste it to whoever you want to play with.");
+        ShowNotice("Guest link copied. " + wxString(kLinkForAnyone));
     }
     else
     {
-        ShowNotice("Guest link created: " + link + " Send it to whoever you want to play with.", NoticeInfo);
+        ShowNotice("Guest link created: " + link + " " + kLinkForAnyone, NoticeInfo);
     }
 }
 
@@ -1714,7 +1718,7 @@ void FriendsListFrame::OnGuestLinkHotKey()
     if (!m_pRemoteInvite->GuestLink().empty())
     {
         CopyGuestLink();
-        Announce("Guest link copied", "Paste it to whoever you want to play with. Anyone with the link can join.");
+        Announce("Guest link copied", "Paste it to whoever you want to play with. " + wxString(kLinkForAnyone));
         return;
     }
     if (HotKeyLinkPending() || m_linkRequestedAt != 0)
