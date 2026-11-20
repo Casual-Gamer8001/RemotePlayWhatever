@@ -28,11 +28,14 @@ public:
         Downloading,
         Installing,
         Restarting,     // the new version has been started; close this one
+        Postponed,      // downloaded, but not installed: restarting isn't allowed right now
         Failed,
     };
 
     // onChange is called (on the GUI thread) whenever the state changes.
-    explicit AppUpdater(std::function<void()> onChange);
+    // canRestart is asked right before the files are swapped (restarting
+    // would end a Remote Play session, for example).
+    AppUpdater(std::function<void()> onChange, std::function<bool()> canRestart);
 
     // A release build on Windows (it knows its build number and its releases).
     static bool Supported();
@@ -78,6 +81,7 @@ private:
     void OnTimer(wxTimerEvent& event);
 
     std::function<void()> m_onChange;
+    std::function<bool()> m_canRestart;
     State m_state;
     bool m_manual;
     bool m_shutdown;

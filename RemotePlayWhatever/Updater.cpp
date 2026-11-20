@@ -121,10 +121,14 @@ void RemoveTree(const wxString& dir)
 }
 
 #if RPW_HAS_UPDATER
-bool MoveWithRetry(const wxString& from, const wxString& to)
+const char* const kBrokenInstall =
+    "The update failed part-way, and Windows wouldn't let all of Remote Play Whatever's old files be put back, "
+    "so it may not start next time. Download it again from the releases page.";
+
+bool MoveWithRetry(const wxString& from, const wxString& to, int attempts = 10)
 {
     // A virus scanner may be looking at a file that was just written.
-    for (int attempt = 0; attempt < 10; ++attempt)
+    for (int attempt = 0; attempt < attempts; ++attempt)
     {
         if (::MoveFileExW(from.wc_str(), to.wc_str(), MOVEFILE_REPLACE_EXISTING))
         {
@@ -133,6 +137,14 @@ bool MoveWithRetry(const wxString& from, const wxString& to)
         ::Sleep(200);
     }
     return false;
+}
+
+// Put target.old back as target. This one matters most, so it tries for
+// longer and falls back to copying.
+bool RestoreOld(const wxString& target)
+{
+    const wxString old = target + ".old";
+    return MoveWithRetry(old, target, 50) || ::CopyFileW(old.wc_str(), target.wc_str(), FALSE);
 }
 
 bool Sha256File(const wxString& path, wxString& hex)
@@ -238,17 +250,24 @@ struct SwappedFile
     bool hadOld;
 };
 
-// Put the old files back after a failed swap.
-void Undo(const std::vector<SwappedFile>& done)
+// Put the old files back after a failed swap. False if some couldn't be.
+bool Undo(const std::vector<SwappedFile>& done)
 {
+    bool restored = true;
     for (std::vector<SwappedFile>::const_reverse_iterator it = done.rbegin(); it != done.rend(); ++it)
     {
-        ::DeleteFileW(it->target.wc_str());
         if (it->hadOld)
         {
-            MoveWithRetry(it->target + ".old", it->target);
+            // Replaces the new file.
+            restored = RestoreOld(it->target) && restored;
+        }
+        else
+        {
+            // A file the old version didn't have; it's in the way at worst.
+            ::DeleteFileW(it->target.wc_str());
         }
     }
+    return restored;
 }
 
 // Start the new version. It waits for this process to exit before it opens
@@ -329,21 +348,24 @@ bool InstallPackage(const wxString& package, const wxString& sha256, wxString& e
         SwappedFile file;
         file.target = Join(dir, names[i].CmpNoCase(kProgramName) == 0 ? exeName : names[i]);
         file.hadOld = wxFileExists(file.target);
-        bool ok = !file.hadOld || MoveWithRetry(file.target, file.target + ".old");
-        if (ok && !MoveWithRetry(Join(staging, names[i]), file.target))
+        if (file.hadOld && !MoveWithRetry(file.target, file.target + ".old"))
         {
-            if (file.hadOld)
-            {
-                MoveWithRetry(file.target + ".old", file.target);
-            }
-            ok = false;
-        }
-        if (!ok)
-        {
-            Undo(done);
+            // This file wasn't touched; put back the ones before it.
+            const bool undone = Undo(done);
             RemoveTree(staging);
-            error = "Couldn't replace " + wxFileName(file.target).GetFullName() + " (is something else using it?), "
-                    "so nothing was changed.";
+            error = undone ? "Couldn't replace " + wxFileName(file.target).GetFullName() +
+                             " (is something else using it?), so nothing was changed."
+                           : wxString(kBrokenInstall);
+            return false;
+        }
+        if (!MoveWithRetry(Join(staging, names[i]), file.target))
+        {
+            const bool restored = !file.hadOld || RestoreOld(file.target);
+            const bool undone = Undo(done);
+            RemoveTree(staging);
+            error = restored && undone ? "Couldn't put the new " + wxFileName(file.target).GetFullName() +
+                                         " in place, so nothing was changed."
+                                       : wxString(kBrokenInstall);
             return false;
         }
         done.push_back(file);
@@ -352,8 +374,8 @@ bool InstallPackage(const wxString& package, const wxString& sha256, wxString& e
 
     if (!StartNewCopy(Join(dir, exeName), dir))
     {
-        Undo(done);
-        error = "Couldn't start the new version, so the old one was put back.";
+        error = Undo(done) ? wxString("Couldn't start the new version, so the old one was put back.")
+                           : wxString(kBrokenInstall);
         return false;
     }
     return true;
@@ -361,8 +383,9 @@ bool InstallPackage(const wxString& package, const wxString& sha256, wxString& e
 #endif // RPW_HAS_UPDATER
 } // namespace
 
-AppUpdater::AppUpdater(std::function<void()> onChange) :
+AppUpdater::AppUpdater(std::function<void()> onChange, std::function<bool()> canRestart) :
     m_onChange(onChange),
+    m_canRestart(canRestart),
     m_state(Idle),
     m_manual(false),
     m_shutdown(false),
@@ -450,6 +473,7 @@ void AppUpdater::Shutdown()
 {
     m_shutdown = true;
     m_onChange = nullptr;
+    m_canRestart = nullptr;
     m_timer.Stop();
 #if RPW_HAS_UPDATER
     if (m_request.IsOk() && m_request.GetState() == wxWebRequest::State_Active)
@@ -539,6 +563,15 @@ void AppUpdater::FinishInstall()
 #if RPW_HAS_UPDATER
     if (m_shutdown)
     {
+        return;
+    }
+    // Asked again now, right before the restart: a Remote Play session may
+    // have started while the update was downloading.
+    if (m_canRestart && !m_canRestart())
+    {
+        wxLogNull quiet;
+        wxRemoveFile(PackagePath());
+        SetState(Postponed);
         return;
     }
     SetState(Installing);

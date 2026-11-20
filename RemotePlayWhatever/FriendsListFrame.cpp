@@ -133,7 +133,8 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
 
     // Never deleted: a download Windows is still finishing when the app closes
     // may report back to it, so it stays until the process ends (see OnClose).
-    m_updater = new AppUpdater([this]() { OnUpdaterChange(); });
+    m_updater = new AppUpdater([this]() { OnUpdaterChange(); },
+                               [this]() { return !m_pRemoteInvite->IsSessionActive(); });
     m_updater->StartAutomaticChecks();
 }
 
@@ -496,6 +497,19 @@ void FriendsListFrame::OnUpdaterChange()
     case AppUpdater::Restarting:
         // The new version has started and waits for this one to close.
         CallAfter([this]() { Close(true); });
+        break;
+    case AppUpdater::Postponed:
+        CallAfter([this]()
+        {
+            wxMessageBox(
+                wxString::Format("A Remote Play session started while the update was downloading, so it wasn't "
+                                 "installed.\n\nClick \"Update to build %ld\" again when the session is over.",
+                                 m_updater->AvailableBuild()),
+                "Remote Play Whatever",
+                wxOK | wxICON_INFORMATION,
+                IsShown() ? this : nullptr
+            );
+        });
         break;
     default:
         break;
