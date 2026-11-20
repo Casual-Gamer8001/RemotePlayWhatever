@@ -8,6 +8,7 @@
 #ifdef __WXMSW__
 #include <wx/msw/wrapwin.h>
 #endif
+#include "Updater.h"
 #include "FriendsListFrame.h"
 #include "FriendPanel.h"
 #include "ControlFrame.h"
@@ -29,6 +30,8 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     m_status(nullptr),
     m_copyLinkButton(nullptr),
     m_endButton(nullptr),
+    m_updateButton(nullptr),
+    m_updater(nullptr),
     m_noticeUntil(0),
     m_copiedUntil(0),
     m_tick(this),
@@ -66,6 +69,11 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     m_endButton->Hide();
     sessionButtons->Add(m_endButton, 1);
     statusSizer->Add(sessionButtons, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 10);
+    m_updateButton = new wxButton(statusPanel, wxID_ANY, "Update");
+    m_updateButton->SetToolTip("Download the new version from GitHub and restart Remote Play Whatever with it.");
+    m_updateButton->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { StartUpdate(); });
+    m_updateButton->Hide();
+    statusSizer->Add(m_updateButton, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 10);
     statusPanel->SetSizer(statusSizer);
     frameSizer->Add(statusPanel, 0, wxEXPAND | wxBOTTOM, 1);
 
@@ -122,6 +130,11 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     Bind(wxEVT_ICONIZE, &FriendsListFrame::OnIconize, this);
     m_tick.Start(500);
     UpdateStatus();
+
+    // Never deleted: a download Windows is still finishing when the app closes
+    // may report back to it, so it stays until the process ends (see OnClose).
+    m_updater = new AppUpdater([this]() { OnUpdaterChange(); });
+    m_updater->StartAutomaticChecks();
 }
 
 void FriendsListFrame::OnClose(wxCloseEvent& event)
@@ -131,6 +144,7 @@ void FriendsListFrame::OnClose(wxCloseEvent& event)
     // invisibly. Only our own windows are destroyed here: the tray icon owns
     // and destroys its own hidden window.
     m_tick.Stop();
+    m_updater->Shutdown();
     std::vector<wxWindow*> controls;
     for (wxWindowList::compatibility_iterator node = wxTopLevelWindows.GetFirst(); node; node = node->GetNext())
     {
@@ -337,6 +351,154 @@ void FriendsListFrame::ConfirmEndSession()
     {
         m_pRemoteInvite->EndSession();
         UpdateStatus();
+    }
+}
+
+void FriendsListFrame::ShowNotice(const wxString& text)
+{
+    m_notice = text;
+    m_noticeUntil = wxGetLocalTimeMillis() + 15000;
+    UpdateStatus();
+}
+
+bool FriendsListFrame::UpdatesSupported() const
+{
+    return AppUpdater::Supported();
+}
+
+long FriendsListFrame::AvailableUpdate() const
+{
+    return m_updater->AvailableBuild();
+}
+
+bool FriendsListFrame::UpdateBusy() const
+{
+    return m_updater->Busy();
+}
+
+void FriendsListFrame::CheckForUpdates()
+{
+    m_updater->Check(true);
+}
+
+void FriendsListFrame::StartUpdate()
+{
+    if (m_updater->AvailableBuild() <= 0 || m_updater->Busy())
+    {
+        return;
+    }
+    if (m_pRemoteInvite->IsSessionActive())
+    {
+        wxMessageBox(
+            "Updating restarts Remote Play Whatever, which would end your Remote Play session.\n\n"
+            "End the session first, then update.",
+            "Remote Play Whatever",
+            wxOK | wxICON_INFORMATION,
+            IsShown() ? this : nullptr
+        );
+        return;
+    }
+    m_updater->Install();
+}
+
+void FriendsListFrame::RefreshUpdateButton()
+{
+    const long build = m_updater->AvailableBuild();
+    const AppUpdater::State state = m_updater->GetState();
+    const bool working = state == AppUpdater::Downloading || state == AppUpdater::Installing ||
+                         state == AppUpdater::Restarting;
+    wxString label = wxString::Format("Update to build %ld", build);
+    if (state == AppUpdater::Downloading)
+    {
+        label = "Downloading the update...";
+    }
+    else if (state == AppUpdater::Installing || state == AppUpdater::Restarting)
+    {
+        label = "Installing the update...";
+    }
+
+    bool relayout = false;
+    if (m_updateButton->IsShown() != (build > 0))
+    {
+        m_updateButton->Show(build > 0);
+        relayout = true;
+    }
+    if (m_updateButton->GetLabel() != label)
+    {
+        m_updateButton->SetLabel(label);
+        relayout = true;
+    }
+    m_updateButton->Enable(!working);
+    if (relayout)
+    {
+        m_updateButton->GetParent()->Layout();
+        Layout();
+    }
+}
+
+void FriendsListFrame::OnUpdaterChange()
+{
+    RefreshUpdateButton();
+
+    // Dialogs wait until the updater's own event has been handled.
+    const bool manual = m_updater->LastCheckWasManual();
+    switch (m_updater->GetState())
+    {
+    case AppUpdater::Available:
+        if (manual)
+        {
+            CallAfter([this]()
+            {
+                int answer = wxMessageBox(
+                    wxString::Format("Build %ld is available (you have build %ld).\n\n"
+                                     "Update now? Remote Play Whatever restarts afterwards.",
+                                     m_updater->AvailableBuild(), AppUpdater::CurrentBuild()),
+                    "Remote Play Whatever",
+                    wxYES_NO | wxICON_QUESTION,
+                    IsShown() ? this : nullptr
+                );
+                if (answer == wxYES)
+                {
+                    StartUpdate();
+                }
+            });
+        }
+        else if (m_tray && !IsShown())
+        {
+            m_tray->ShowUpdateBalloon(m_updater->AvailableBuild());
+        }
+        break;
+    case AppUpdater::UpToDate:
+        if (manual)
+        {
+            CallAfter([this]()
+            {
+                wxMessageBox(wxString::Format("You have the latest version (build %ld).", AppUpdater::CurrentBuild()),
+                             "Remote Play Whatever", wxOK | wxICON_INFORMATION, IsShown() ? this : nullptr);
+            });
+        }
+        break;
+    case AppUpdater::Failed:
+        if (manual)
+        {
+            const wxString error = m_updater->Error();
+            CallAfter([this, error]()
+            {
+                int answer = wxMessageBox(error + "\n\nOpen the download page instead?", "Remote Play Whatever",
+                                          wxYES_NO | wxICON_WARNING, IsShown() ? this : nullptr);
+                if (answer == wxYES)
+                {
+                    wxLaunchDefaultBrowser(AppUpdater::ReleasesPage());
+                }
+            });
+        }
+        break;
+    case AppUpdater::Restarting:
+        // The new version has started and waits for this one to close.
+        CallAfter([this]() { Close(true); });
+        break;
+    default:
+        break;
     }
 }
 

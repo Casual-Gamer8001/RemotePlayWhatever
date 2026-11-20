@@ -7,6 +7,7 @@
 
 class wxSearchCtrl;
 class RpwTrayIcon;
+class AppUpdater;
 
 enum ERPWEvtID
 {
@@ -24,6 +25,16 @@ public:
     void ShowFromTray();
     void CopyGuestLink();
     void ConfirmEndSession();
+
+    // Updating to a newer release (release builds on Windows).
+    bool UpdatesSupported() const;
+    long AvailableUpdate() const;
+    bool UpdateBusy() const;
+    void CheckForUpdates();
+    void StartUpdate();
+
+    // A short message in the status line, e.g. after an update.
+    void ShowNotice(const wxString& text);
 
 #ifdef __WXMSW__
     // A second copy of the app asks this one to show itself with a registered
@@ -60,12 +71,16 @@ private:
     void OnCopyLink(wxCommandEvent& event);
     void UpdateStatus();
     void ApplyFilter();
+    void OnUpdaterChange();
+    void RefreshUpdateButton();
 
     RpwTrayIcon* m_tray;
     wxSearchCtrl* m_search;
     wxStaticText* m_status;
     wxButton* m_copyLinkButton;
     wxButton* m_endButton;
+    wxButton* m_updateButton;
+    AppUpdater* m_updater;
     wxString m_statusShown;
     wxString m_notice;
     wxLongLong m_noticeUntil;

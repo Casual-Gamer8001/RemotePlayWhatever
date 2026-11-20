@@ -1,5 +1,6 @@
 #include <wx/config.h>
 #include <wx/menu.h>
+#include "Updater.h"
 #include "TrayIcon.h"
 #include "FriendsListFrame.h"
 #include "ControlFrame.h"
@@ -13,6 +14,9 @@ enum
     idTrayCopyLink,
     idTrayEndSession,
     idTraySounds,
+    idTrayUpdate,
+    idTrayCheckUpdates,
+    idTrayAutoUpdates,
     idTrayQuit,
 };
 
@@ -25,6 +29,9 @@ RpwTrayIcon::RpwTrayIcon(FriendsListFrame* main, ControlFrame* controls, RemoteP
     SetIcon(m_icon, "Remote Play Whatever");
     Bind(wxEVT_TASKBAR_LEFT_UP, &RpwTrayIcon::OnLeftClick, this);
     Bind(wxEVT_MENU, &RpwTrayIcon::OnMenu, this);
+#if defined(__WXMSW__) && wxUSE_TASKBARICON_BALLOONS
+    Bind(wxEVT_TASKBAR_BALLOON_CLICK, [this](wxTaskBarIconEvent&) { m_main->ShowFromTray(); });
+#endif
 }
 
 void RpwTrayIcon::SetStatus(const wxString& status)
@@ -54,6 +61,24 @@ void RpwTrayIcon::ShowHiddenHintOnce()
 #endif
 }
 
+void RpwTrayIcon::ShowUpdateBalloon(long build)
+{
+#if defined(__WXMSW__) && wxUSE_TASKBARICON_BALLOONS
+    wxConfigBase* config = wxConfigBase::Get();
+    if (!config || config->ReadLong("/Options/UpdateNotifiedBuild", 0) >= build)
+    {
+        return;
+    }
+    config->Write("/Options/UpdateNotifiedBuild", build);
+    config->Flush();
+    ShowBalloon("A Remote Play Whatever update is available",
+                wxString::Format("Build %ld is ready. Click here to open Remote Play Whatever, then click Update.", build),
+                0, wxICON_INFORMATION);
+#else
+    wxUnusedVar(build);
+#endif
+}
+
 wxMenu* RpwTrayIcon::CreatePopupMenu()
 {
     wxMenu* menu = new wxMenu;
@@ -63,6 +88,17 @@ wxMenu* RpwTrayIcon::CreatePopupMenu()
     menu->Append(idTrayCopyLink, "Copy guest link")->Enable(!m_handler->GuestLink().empty());
     menu->Append(idTrayEndSession, "End session")->Enable(m_handler->IsSessionActive());
     menu->AppendSeparator();
+    if (m_main->UpdatesSupported())
+    {
+        const bool busy = m_main->UpdateBusy();
+        if (m_main->AvailableUpdate() > 0)
+        {
+            menu->Append(idTrayUpdate, wxString::Format("Update to build %ld", m_main->AvailableUpdate()))->Enable(!busy);
+        }
+        menu->Append(idTrayCheckUpdates, wxString::Format("Check for updates (you have build %ld)", AppUpdater::CurrentBuild()))->Enable(!busy);
+        menu->AppendCheckItem(idTrayAutoUpdates, "Check for updates automatically")->Check(AppUpdater::AutoChecksEnabled());
+        menu->AppendSeparator();
+    }
     menu->AppendCheckItem(idTraySounds, "Sounds when guests join or leave")->Check(SoundsEnabled());
     menu->AppendSeparator();
     menu->Append(idTrayQuit, "Quit");
@@ -96,6 +132,16 @@ void RpwTrayIcon::OnMenu(wxCommandEvent& event)
         break;
     case idTraySounds:
         SetSoundsEnabled(!SoundsEnabled());
+        break;
+    case idTrayUpdate:
+        m_main->ShowFromTray();
+        m_main->StartUpdate();
+        break;
+    case idTrayCheckUpdates:
+        m_main->CheckForUpdates();
+        break;
+    case idTrayAutoUpdates:
+        AppUpdater::SetAutoChecksEnabled(!AppUpdater::AutoChecksEnabled());
         break;
     case idTrayQuit:
         m_main->Close(true);

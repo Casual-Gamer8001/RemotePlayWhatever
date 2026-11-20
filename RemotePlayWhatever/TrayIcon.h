@@ -19,6 +19,8 @@ public:
     // The first time the window hides here, say where it went (new tray
     // icons start out under the ^ on Windows 11).
     void ShowHiddenHintOnce();
+    // Say a new version is available (once per build).
+    void ShowUpdateBalloon(long build);
 
 protected:
     virtual wxMenu* CreatePopupMenu() override;

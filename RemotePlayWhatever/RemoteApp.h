@@ -55,6 +55,7 @@ private:
     AppId_t m_nonSteamID;
     uint64 m_guestID;
     uint64 m_inviteToCancel;
+    unsigned long m_updatedFrom;    // set when an update started this copy
 
     RemotePlayInviteHandler* m_inviteHandler;
 };
