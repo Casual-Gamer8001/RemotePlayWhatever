@@ -21,8 +21,10 @@ static const wxColour kNoticeOrange(190, 100, 0);
 
 FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     wxFrame(NULL, wxID_ANY, _("Remote Play Whatever"), wxPoint(50, 50), wxSize(275, 650)),
+    m_recentSizer(nullptr),
     m_onlineSizer(nullptr),
     m_offlineSizer(nullptr),
+    m_recentLabel(nullptr),
     m_onlineLabel(nullptr),
     m_offlineLabel(nullptr),
     m_tray(nullptr),
@@ -38,6 +40,7 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     m_statusRefreshTicks(0),
     m_askingGroupFallback(false),
     m_inviteQueued(false),
+    m_rosterSeen(0),
     m_remoteInviteResultCb(this, &FriendsListFrame::OnRemotePlayInviteResult),
     m_personaStateCb(this, &FriendsListFrame::OnPersonaStateChange)
 {
@@ -95,9 +98,15 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     m_search->Bind(wxEVT_TEXT, [this](wxCommandEvent&) { ApplyFilter(); });
     m_search->Bind(wxEVT_SEARCHCTRL_CANCEL_BTN, [this](wxCommandEvent&) { m_search->Clear(); ApplyFilter(); });
 
-    // Online friends, then the ones who appear offline (they may just be
-    // invisible, and an invite link reaches them in Steam chat anyway).
+    // Friends who've joined before, then online friends, then the ones who
+    // appear offline (they may just be invisible, and an invite link reaches
+    // them in Steam chat anyway).
     wxColour headerColour = wxSystemSettings::GetColour(wxSYS_COLOUR_GRAYTEXT);
+    m_recentLabel = new wxStaticText(m_friendsListContainer, wxID_ANY, "Played with recently");
+    m_recentLabel->SetForegroundColour(headerColour);
+    m_friendsListSizer->Add(m_recentLabel, 0, wxLEFT | wxRIGHT | wxBOTTOM, 8);
+    m_recentSizer = new wxBoxSizer(wxVERTICAL);
+    m_friendsListSizer->Add(m_recentSizer, 0, wxEXPAND | wxBOTTOM, 8);
     m_onlineLabel = new wxStaticText(m_friendsListContainer, wxID_ANY, "Online");
     m_onlineLabel->SetForegroundColour(headerColour);
     m_friendsListSizer->Add(m_onlineLabel, 0, wxLEFT | wxRIGHT | wxBOTTOM, 8);
@@ -109,6 +118,8 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     m_offlineSizer = new wxBoxSizer(wxVERTICAL);
     m_friendsListSizer->Add(m_offlineSizer, 0, wxEXPAND);
 
+    m_joinTimes = LoadGuestJoinTimes();
+    m_rosterSeen = m_pRemoteInvite->RosterRevision();
     int cFriends = GClientContext()->SteamFriends()->GetFriendCount(k_EFriendFlagImmediate);
     for(int i = 0; i < cFriends; ++i)
     {
@@ -521,6 +532,18 @@ void FriendsListFrame::OnTick(wxTimerEvent&)
 {
     UpdateStatus();
 
+    // A friend who joins a session moves up to "Played with recently".
+    if (m_pRemoteInvite->RosterRevision() != m_rosterSeen)
+    {
+        m_rosterSeen = m_pRemoteInvite->RosterRevision();
+        std::map<uint64, long> times = LoadGuestJoinTimes();
+        if (times != m_joinTimes)
+        {
+            m_joinTimes = times;
+            ArrangeFriendPanels();
+        }
+    }
+
     // Every 30 s, refresh what friends are doing: Steam can fill in a game's
     // name a little after the friend started playing it.
     if (++m_statusRefreshTicks >= 60)
@@ -593,19 +616,51 @@ void FriendsListFrame::RemoveFriendPanel(CSteamID friendID)
     if(it != m_friendPanels.end())
     {
         FriendPanel* panel = (*it).second;
+        m_recentSizer->Detach(panel);
         m_onlineSizer->Detach(panel);
         m_offlineSizer->Detach(panel);
         panel->Destroy();
         m_friendPanels.erase(it);
+        m_recentIDs.erase(friendID64);
     }
 }
 
 void FriendsListFrame::ArrangeFriendPanels()
 {
+    // Up to kRecentFriends friends who joined a session before, most recent
+    // first; everyone else under Online or Offline, by name.
+    static const size_t kRecentFriends = 8;
+    std::vector<std::pair<long, FriendPanel*>> played;
     std::vector<FriendPanel*> online, offline;
     for (auto it = m_friendPanels.begin(); it != m_friendPanels.end(); ++it)
     {
-        (it->second->IsOnline() ? online : offline).push_back(it->second);
+        auto joined = m_joinTimes.find(it->first);
+        if (joined != m_joinTimes.end())
+        {
+            played.push_back(std::make_pair(joined->second, it->second));
+        }
+    }
+    std::sort(played.begin(), played.end(), [](const std::pair<long, FriendPanel*>& a,
+                                               const std::pair<long, FriendPanel*>& b)
+    {
+        return a.first > b.first;
+    });
+    if (played.size() > kRecentFriends)
+    {
+        played.resize(kRecentFriends);
+    }
+    m_recentIDs.clear();
+    for (size_t i = 0; i < played.size(); ++i)
+    {
+        m_recentIDs.insert(played[i].second->GetSteamID().ConvertToUint64());
+    }
+
+    for (auto it = m_friendPanels.begin(); it != m_friendPanels.end(); ++it)
+    {
+        if (m_recentIDs.count(it->first) == 0)
+        {
+            (it->second->IsOnline() ? online : offline).push_back(it->second);
+        }
     }
     auto byName = [](FriendPanel* a, FriendPanel* b)
     {
@@ -615,8 +670,13 @@ void FriendsListFrame::ArrangeFriendPanels()
     std::sort(offline.begin(), offline.end(), byName);
 
     // Detach only; the panels themselves stay.
+    m_recentSizer->Clear(false);
     m_onlineSizer->Clear(false);
     m_offlineSizer->Clear(false);
+    for (size_t i = 0; i < played.size(); ++i)
+    {
+        m_recentSizer->Add(played[i].second, 0, wxBOTTOM | wxEXPAND, 1);
+    }
     for (size_t i = 0; i < online.size(); ++i)
     {
         m_onlineSizer->Add(online[i], 0, wxBOTTOM | wxEXPAND, 1);
@@ -665,7 +725,7 @@ void FriendsListFrame::OnPersonaStateChange(PersonaStateChange_t* personaStateCb
 void FriendsListFrame::ApplyFilter()
 {
     wxString needle = m_search ? m_search->GetValue().Lower().Trim().Trim(false) : wxString();
-    int online = 0, offline = 0;
+    int recent = 0, online = 0, offline = 0;
     for (auto it = m_friendPanels.begin(); it != m_friendPanels.end(); ++it)
     {
         FriendPanel* panel = it->second;
@@ -675,9 +735,18 @@ void FriendsListFrame::ApplyFilter()
         panel->Show(match);
         if (match)
         {
-            ++(panel->IsOnline() ? online : offline);
+            if (m_recentIDs.count(it->first))
+            {
+                ++recent;
+            }
+            else
+            {
+                ++(panel->IsOnline() ? online : offline);
+            }
         }
     }
+    m_recentLabel->SetLabel(wxString::Format("Played with recently (%d)", recent));
+    m_recentLabel->Show(recent > 0);
     m_onlineLabel->SetLabel(wxString::Format("Online (%d)", online));
     m_onlineLabel->Show(online > 0);
     m_offlineLabel->SetLabel(wxString::Format("Offline (%d)", offline));

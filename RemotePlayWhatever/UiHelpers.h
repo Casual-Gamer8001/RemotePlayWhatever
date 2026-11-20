@@ -1,5 +1,6 @@
 #ifndef UIHELPERS_H
 #define UIHELPERS_H
+#include <map>
 #include <wx/iconbndl.h>
 #include <Steamworks.h>
 
@@ -18,5 +19,10 @@ void PlayGuestSound(bool joined);
 // per SteamID so it's applied again the next time they join.
 bool LoadGuestControls(uint64 steamID, bool& kbd, bool& mouse, bool& ctrl);
 void SaveGuestControls(uint64 steamID, bool kbd, bool mouse, bool ctrl);
+
+// When each friend last joined one of the host's sessions (Unix time, per
+// SteamID), for the "Played with recently" group in the friends list.
+void SaveGuestJoined(uint64 steamID);
+std::map<uint64, long> LoadGuestJoinTimes();
 
 #endif // UIHELPERS_H

@@ -523,6 +523,8 @@ void RemotePlayInviteHandler::OnRemotePlayStart(RemoteClientStartStreamSession_t
     m_guests.push_back(g);
     ++m_rosterRevision;
     PlayGuestSound(true);
+    // For the friends list's "Played with recently" group.
+    SaveGuestJoined(g.steamID);
 
     if (g.steamID)
     {
