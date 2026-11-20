@@ -3,8 +3,10 @@ name: Build
 # Every push builds a 64-bit Windows package. Pushes to master publish it as
 # the latest release; pushes to other branches replace that branch's test
 # (pre-release) build, tagged branch-<name>. Each release also gets an
-# update.txt (build number, tag, package name, SHA-256), which the app reads to
-# offer updates. A Linux job checks that the code still compiles there too.
+# update.txt (build number, tag, package name, SHA-256 and up to ten "note="
+# lines with the commit titles since the previous release, oldest first),
+# which the app reads to offer updates. A Linux job checks that the code still
+# compiles there too.
 
 on:
   push:
@@ -29,6 +31,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          # Full history and tags, to list what changed since the last release.
+          fetch-depth: 0
 
       - name: Download wxWidgets (prebuilt 64-bit DLL build)
         shell: pwsh
@@ -111,19 +115,31 @@ jobs:
           $short = $env:GITHUB_SHA.Substring(0, 7)
           $subject = (git log -1 --format=%s).Trim()
           $tag = if ($env:GITHUB_REF_NAME -eq 'master') { "build-$env:GITHUB_RUN_NUMBER" } else { 'branch-' + ($env:GITHUB_REF_NAME -replace '[^A-Za-z0-9._-]', '-') }
-          # What the app reads to find out whether there's a newer build, where it is and how to check it.
+          # What's new since the previous release: commit titles, oldest first (plain ASCII, one per line).
+          $previous = git describe --tags --abbrev=0 --match 'build-*' 'HEAD^' 2>$null
+          $global:LASTEXITCODE = 0
+          $titles = if ($previous) { git log --reverse --no-merges --format=%s "$previous..HEAD" } else { git log -1 --format=%s }
+          $notes = @($titles | Where-Object { $_ -and $_ -notmatch '^(TEST ONLY|Merge |README)' } | ForEach-Object {
+            $t = $_ -replace "[\u2018\u2019]", "'" -replace '[\u201C\u201D]', '"' -replace '[\u2013\u2014]', '-'
+            $t = ($t.Normalize([Text.NormalizationForm]::FormD) -replace '[^\x20-\x7E]', '').Trim()
+            if ($t.Length -gt 100) { $t.Substring(0, 97) + '...' } else { $t }
+          } | Select-Object -First 10)
+          # What the app reads to find out whether there's a newer build, where it is, how to check it and what's new.
           $hash = (Get-FileHash $env:PACKAGE -Algorithm SHA256).Hash.ToLowerInvariant()
-          "build=$env:GITHUB_RUN_NUMBER`ntag=$tag`nfile=$env:PACKAGE`nsha256=$hash`n" | Set-Content -Path update.txt -NoNewline -Encoding ascii
+          $info = "build=$env:GITHUB_RUN_NUMBER`ntag=$tag`nfile=$env:PACKAGE`nsha256=$hash`n"
+          foreach ($n in $notes) { $info += "note=$n`n" }
+          $info | Set-Content -Path update.txt -NoNewline -Encoding ascii
+          $changes = if ($notes) { "`n`nChanges since $(if ($previous) { $previous } else { 'the last build' }):`n" + (($notes | ForEach-Object { "- $_" }) -join "`n") } else { '' }
           if ($env:GITHUB_REF_NAME -eq 'master') {
             gh release create $tag $env:PACKAGE update.txt --target $env:GITHUB_SHA --latest `
               --title "RemotePlayWhatever build $env:GITHUB_RUN_NUMBER ($short)" `
-              --notes "Built from master at $env:GITHUB_SHA.`n`nLatest change: $subject"
+              --notes "Built from master at $env:GITHUB_SHA.$changes"
           } else {
             gh release delete $tag --cleanup-tag --yes 2>$null
             $global:LASTEXITCODE = 0
             gh release create $tag $env:PACKAGE update.txt --target $env:GITHUB_SHA --prerelease --latest=false `
               --title "Test build: $env:GITHUB_REF_NAME ($short)" `
-              --notes "Test build of branch $env:GITHUB_REF_NAME at $env:GITHUB_SHA. Not for everyday use.`n`nLatest change: $subject"
+              --notes "Test build of branch $env:GITHUB_REF_NAME at $env:GITHUB_SHA. Not for everyday use.`n`nLatest change: $subject$changes"
           }
           if ($LASTEXITCODE) { throw 'Publishing the release failed' }
 

@@ -19,8 +19,9 @@ public:
     // The first time the window hides here, say where it went (new tray
     // icons start out under the ^ on Windows 11).
     void ShowHiddenHintOnce();
-    // Say a new version is available (once per build).
-    void ShowUpdateBalloon(long build);
+    // Say a new version is available (once per build), with a line about
+    // what's new in it if there is one.
+    void ShowUpdateBalloon(long build, const wxString& whatsNew = wxString());
     // A notification by the clock (Windows), e.g. answering a shortcut used
     // in a game.
     void Notify(const wxString& title, const wxString& text, bool warning = false);

@@ -529,13 +529,27 @@ void AppUpdater::Install()
 void AppUpdater::ReadInfo(const wxString& text)
 {
     std::map<wxString, wxString> info;
+    wxArrayString notes;
     wxStringTokenizer lines(text, "\r\n", wxTOKEN_STRTOK);
     while (lines.HasMoreTokens())
     {
         wxString line = lines.GetNextToken();
         if (line.Contains("="))
         {
-            info[line.BeforeFirst('=').Trim().Trim(false)] = line.AfterFirst('=').Trim().Trim(false);
+            const wxString key = line.BeforeFirst('=').Trim().Trim(false);
+            const wxString value = line.AfterFirst('=').Trim().Trim(false);
+            // Any number of "note=" lines: what's new, oldest change first.
+            if (key == "note")
+            {
+                if (!value.empty() && notes.size() < 10)
+                {
+                    notes.Add(value.Left(120));
+                }
+            }
+            else
+            {
+                info[key] = value;
+            }
         }
     }
 
@@ -552,10 +566,35 @@ void AppUpdater::ReadInfo(const wxString& text)
         return;
     }
     m_availableBuild = build;
+    m_notes = notes;
     m_tag = info["tag"];
     m_file = info["file"];
     m_sha256 = info["sha256"].Lower();
     SetState(Available);
+}
+
+wxString AppUpdater::NotesSummary(size_t maxChars) const
+{
+    wxString summary;
+    for (size_t i = 0; i < m_notes.size(); ++i)
+    {
+        summary += (i ? "; " : "") + m_notes[i];
+    }
+    if (summary.length() > maxChars && maxChars > 3)
+    {
+        summary = summary.Left(maxChars - 3).Trim() + "...";
+    }
+    return summary;
+}
+
+wxString AppUpdater::NotesList() const
+{
+    wxString list;
+    for (size_t i = 0; i < m_notes.size(); ++i)
+    {
+        list += (i ? "\n- " : "- ") + m_notes[i];
+    }
+    return list;
 }
 
 void AppUpdater::FinishInstall()
