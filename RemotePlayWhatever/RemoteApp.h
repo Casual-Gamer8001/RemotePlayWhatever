@@ -56,6 +56,7 @@ private:
     uint64 m_guestID;
     uint64 m_inviteToCancel;
     unsigned long m_updatedFrom;    // set when an update started this copy
+    bool m_startMinimized;          // --minimized: started with Windows
 
     RemotePlayInviteHandler* m_inviteHandler;
 };

@@ -17,6 +17,7 @@ enum
     idTrayUpdate,
     idTrayCheckUpdates,
     idTrayAutoUpdates,
+    idTrayStartWithWindows,
     idTrayQuit,
 };
 
@@ -111,6 +112,9 @@ wxMenu* RpwTrayIcon::CreatePopupMenu()
         menu->AppendCheckItem(idTrayAutoUpdates, "Check for updates automatically")->Check(AppUpdater::AutoChecksEnabled());
         menu->AppendSeparator();
     }
+#ifdef __WXMSW__
+    menu->AppendCheckItem(idTrayStartWithWindows, "Start with Windows")->Check(StartsWithWindows());
+#endif
     menu->AppendCheckItem(idTraySounds, "Sounds when guests join or leave")->Check(SoundsEnabled());
     menu->AppendSeparator();
     menu->Append(idTrayQuit, "Quit");
@@ -154,6 +158,9 @@ void RpwTrayIcon::OnMenu(wxCommandEvent& event)
         break;
     case idTrayAutoUpdates:
         AppUpdater::SetAutoChecksEnabled(!AppUpdater::AutoChecksEnabled());
+        break;
+    case idTrayStartWithWindows:
+        SetStartWithWindows(!StartsWithWindows());
         break;
     case idTrayQuit:
         m_main->Close(true);
