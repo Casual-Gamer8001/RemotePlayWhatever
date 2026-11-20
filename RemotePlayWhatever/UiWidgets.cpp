@@ -4,11 +4,16 @@
 #endif
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <memory>
 #include <wx/dcbuffer.h>
 #include <wx/fontenum.h>
 #include <wx/graphics.h>
 #include <wx/image.h>
+#include <wx/settings.h>
+#ifdef __WXMSW__
+#include <wx/msw/registry.h>
+#endif
 #include "UiWidgets.h"
 
 namespace
@@ -81,6 +86,350 @@ namespace
                 right = (unsigned char)std::lround(right * cover);
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+
+namespace Ui
+{
+    wxColour kWindow, kCard, kText, kTextSecondary, kTextMuted, kBorder, kBorderHover, kCardBorder,
+             kControl, kControlHover, kControlPressed, kSubtle, kHover, kAccent, kAccentHover,
+             kAccentPressed, kOnAccent, kLinkPressed, kDisabledFill, kDisabledBorder, kDisabledText,
+             kCheckedDisabled, kGood, kGoodText, kGoodBg, kWarnText, kWarnBg, kInfoText, kInfoBg,
+             kInfoBorder, kDanger, kDangerBg, kDangerPressed, kPlaying, kDotOnline, kDotInGame,
+             kDotAway, kDotBusy, kFooter, kDivider, kKey;
+}
+
+namespace
+{
+    struct PaletteEntry
+    {
+        wxColour* colour;
+        unsigned char light[3];
+        unsigned char dark[3];
+    };
+
+    // Light, then dark (close to Windows 11's own dark apps).
+    const PaletteEntry kPalette[] =
+    {
+        { &Ui::kWindow,          { 255, 255, 255 }, {  32,  32,  32 } },
+        { &Ui::kCard,            { 255, 255, 255 }, {  43,  43,  43 } },
+        { &Ui::kText,            {  27,  27,  27 }, { 243, 243, 243 } },
+        { &Ui::kTextSecondary,   { 102, 108, 115 }, { 178, 178, 178 } },
+        { &Ui::kTextMuted,       { 138, 143, 150 }, { 128, 128, 128 } },
+        { &Ui::kBorder,          { 201, 205, 211 }, {  78,  78,  78 } },
+        { &Ui::kBorderHover,     { 176, 181, 189 }, { 102, 102, 102 } },
+        { &Ui::kCardBorder,      { 227, 230, 234 }, {  58,  58,  58 } },
+        { &Ui::kControl,         { 255, 255, 255 }, {  55,  55,  55 } },
+        { &Ui::kControlHover,    { 246, 247, 249 }, {  65,  65,  65 } },
+        { &Ui::kControlPressed,  { 232, 234, 237 }, {  48,  48,  48 } },
+        { &Ui::kSubtle,          { 244, 246, 248 }, {  52,  52,  52 } },
+        { &Ui::kHover,           { 238, 244, 251 }, {  44,  54,  66 } },
+        { &Ui::kAccent,          {  15, 108, 189 }, {  76, 194, 255 } },
+        { &Ui::kAccentHover,     {  17,  94, 163 }, {  71, 177, 232 } },
+        { &Ui::kAccentPressed,   {  15,  84, 140 }, {  66, 161, 210 } },
+        { &Ui::kOnAccent,        { 255, 255, 255 }, {   0,   0,   0 } },
+        { &Ui::kLinkPressed,     { 219, 232, 247 }, {  36,  48,  62 } },
+        { &Ui::kDisabledFill,    { 244, 246, 248 }, {  45,  45,  45 } },
+        { &Ui::kDisabledBorder,  { 225, 228, 232 }, {  58,  58,  58 } },
+        { &Ui::kDisabledText,    { 160, 165, 171 }, { 110, 110, 110 } },
+        { &Ui::kCheckedDisabled, { 178, 204, 232 }, {  38,  78, 104 } },
+        { &Ui::kGood,            {  31, 157,  74 }, { 108, 203,  95 } },
+        { &Ui::kGoodText,        {  30, 107,  52 }, { 143, 214, 155 } },
+        { &Ui::kGoodBg,          { 233, 246, 236 }, {  30,  52,  36 } },
+        { &Ui::kWarnText,        { 138,  75,   0 }, { 252, 200, 120 } },
+        { &Ui::kWarnBg,          { 255, 244, 229 }, {  60,  45,  22 } },
+        { &Ui::kInfoText,        {  15,  84, 140 }, { 153, 206, 255 } },
+        { &Ui::kInfoBg,          { 238, 244, 251 }, {  30,  42,  56 } },
+        { &Ui::kInfoBorder,      { 206, 224, 244 }, {  45,  64,  86 } },
+        { &Ui::kDanger,          { 179,  38,  30 }, { 255, 153, 164 } },
+        { &Ui::kDangerBg,        { 253, 231, 233 }, {  68,  39,  43 } },
+        { &Ui::kDangerPressed,   { 248, 206, 210 }, {  90,  48,  54 } },
+        { &Ui::kPlaying,         {  63, 143,  42 }, { 108, 203,  95 } },
+        { &Ui::kDotOnline,       {  59, 155, 224 }, {  76, 170, 240 } },
+        { &Ui::kDotInGame,       {  87, 176,  58 }, { 108, 203,  95 } },
+        { &Ui::kDotAway,         { 227, 162,  26 }, { 234, 170,  40 } },
+        { &Ui::kDotBusy,         { 209,  52,  56 }, { 232,  90,  90 } },
+        { &Ui::kFooter,          { 250, 251, 252 }, {  28,  28,  28 } },
+        { &Ui::kDivider,         { 236, 238, 241 }, {  52,  52,  52 } },
+        { &Ui::kKey,             { 255, 255, 255 }, {  45,  45,  45 } },
+    };
+
+    bool g_dark = false;
+
+    void SetPalette(bool dark)
+    {
+        for (const PaletteEntry& entry : kPalette)
+        {
+            const unsigned char* rgb = dark ? entry.dark : entry.light;
+            *entry.colour = wxColour(rgb[0], rgb[1], rgb[2]);
+        }
+    }
+
+    // The palette starts out light, before any window exists.
+    struct PaletteStart
+    {
+        PaletteStart() { SetPalette(false); }
+    } s_paletteStart;
+
+    struct Themed
+    {
+        const wxColour* background;
+        const wxColour* foreground;
+    };
+
+    // Windows given palette colours with Ui::SetColours, until they're destroyed.
+    std::map<wxWindow*, Themed>& ThemedWindows()
+    {
+        static std::map<wxWindow*, Themed> windows;
+        return windows;
+    }
+
+    void RefreshTree(wxWindow* window)
+    {
+        window->Refresh();
+        for (wxWindowList::compatibility_iterator node = window->GetChildren().GetFirst(); node; node = node->GetNext())
+        {
+            RefreshTree(node->GetData());
+        }
+    }
+
+#ifdef __WXMSW__
+    DWORD WindowsBuild()
+    {
+        static DWORD build = 0xFFFFFFFF;
+        if (build == 0xFFFFFFFF)
+        {
+            build = 0;
+            typedef LONG (WINAPI *RtlGetVersionFn)(OSVERSIONINFOW*);
+            HMODULE ntdll = ::GetModuleHandleW(L"ntdll.dll");
+            RtlGetVersionFn rtlGetVersion = ntdll ? (RtlGetVersionFn)::GetProcAddress(ntdll, "RtlGetVersion") : nullptr;
+            OSVERSIONINFOW info = {};
+            info.dwOSVersionInfoSize = sizeof(info);
+            if (rtlGetVersion && rtlGetVersion(&info) == 0 && info.dwMajorVersion >= 10)
+            {
+                build = info.dwBuildNumber;
+            }
+        }
+        return build;
+    }
+
+    HMODULE UxTheme()
+    {
+        static HMODULE module = ::LoadLibraryW(L"uxtheme.dll");
+        return module;
+    }
+
+    void SetTheme(HWND hwnd, const wchar_t* name)
+    {
+        typedef HRESULT (WINAPI *SetWindowThemeFn)(HWND, LPCWSTR, LPCWSTR);
+        static SetWindowThemeFn setWindowTheme =
+            UxTheme() ? (SetWindowThemeFn)::GetProcAddress(UxTheme(), "SetWindowTheme") : nullptr;
+        if (setWindowTheme && hwnd)
+        {
+            setWindowTheme(hwnd, name, nullptr);
+        }
+    }
+
+    // Undocumented uxtheme functions (by ordinal) that Windows' own apps use
+    // for dark scroll bars and menus; only called on the Windows 10/11
+    // versions that have them, the same way wxWidgets 3.3 and Notepad++ do.
+    void AllowDarkModeForWindow(HWND hwnd, bool allow)
+    {
+        if (WindowsBuild() < 17763 || !UxTheme() || !hwnd)
+        {
+            return;
+        }
+        typedef BOOL (WINAPI *AllowDarkModeForWindowFn)(HWND, BOOL);
+        static AllowDarkModeForWindowFn allowDark =
+            (AllowDarkModeForWindowFn)::GetProcAddress(UxTheme(), MAKEINTRESOURCEA(133));
+        if (allowDark)
+        {
+            allowDark(hwnd, allow ? TRUE : FALSE);
+        }
+    }
+
+    void SetAppDarkMode(bool dark)
+    {
+        const DWORD build = WindowsBuild();
+        if (build < 17763 || !UxTheme())
+        {
+            return;
+        }
+        FARPROC appMode = ::GetProcAddress(UxTheme(), MAKEINTRESOURCEA(135));
+        if (appMode)
+        {
+            if (build >= 18362)
+            {
+                // SetPreferredAppMode: 2 = force dark, 3 = force light (menus included).
+                typedef int (WINAPI *SetPreferredAppModeFn)(int);
+                ((SetPreferredAppModeFn)appMode)(dark ? 2 : 3);
+            }
+            else
+            {
+                typedef BOOL (WINAPI *AllowDarkModeForAppFn)(BOOL);
+                ((AllowDarkModeForAppFn)appMode)(dark ? TRUE : FALSE);
+            }
+        }
+        typedef void (WINAPI *FlushMenuThemesFn)();
+        FlushMenuThemesFn flushMenuThemes = (FlushMenuThemesFn)::GetProcAddress(UxTheme(), MAKEINTRESOURCEA(136));
+        if (flushMenuThemes)
+        {
+            flushMenuThemes();
+        }
+    }
+
+    void ThemeTitleBar(HWND hwnd, bool dark)
+    {
+        typedef HRESULT (WINAPI *DwmSetWindowAttributeFn)(HWND, DWORD, LPCVOID, DWORD);
+        static HMODULE dwmapi = ::LoadLibraryW(L"dwmapi.dll");
+        static DwmSetWindowAttributeFn setAttribute =
+            dwmapi ? (DwmSetWindowAttributeFn)::GetProcAddress(dwmapi, "DwmSetWindowAttribute") : nullptr;
+        if (!setAttribute || !hwnd || WindowsBuild() < 17763)
+        {
+            return;
+        }
+        // DWMWA_USE_IMMERSIVE_DARK_MODE is 20 (19 before Windows 10 20H1).
+        BOOL value = dark ? TRUE : FALSE;
+        if (FAILED(setAttribute(hwnd, 20, &value, sizeof(value))))
+        {
+            setAttribute(hwnd, 19, &value, sizeof(value));
+        }
+        if (::IsWindowVisible(hwnd))
+        {
+            ::SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                           SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        }
+    }
+
+    void ThemeScrollBars(wxWindow* window, bool dark)
+    {
+        if (window->HasFlag(wxVSCROLL) || window->HasFlag(wxHSCROLL))
+        {
+            AllowDarkModeForWindow((HWND)window->GetHWND(), dark);
+            SetTheme((HWND)window->GetHWND(), dark ? L"DarkMode_Explorer" : nullptr);
+        }
+        for (wxWindowList::compatibility_iterator node = window->GetChildren().GetFirst(); node; node = node->GetNext())
+        {
+            ThemeScrollBars(node->GetData(), dark);
+        }
+    }
+
+    BOOL CALLBACK ThemeTooltip(HWND hwnd, LPARAM dark)
+    {
+        wchar_t name[64] = {};
+        ::GetClassNameW(hwnd, name, 64);
+        if (::lstrcmpiW(name, L"tooltips_class32") == 0)
+        {
+            SetTheme(hwnd, dark ? L"DarkMode_Explorer" : nullptr);
+        }
+        return TRUE;
+    }
+#endif
+}
+
+bool Ui::IsDark()
+{
+    return g_dark;
+}
+
+bool Ui::SystemPrefersDark()
+{
+#ifdef __WXMSW__
+    wxLogNull quiet;
+    wxRegKey key(wxRegKey::HKCU, "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize");
+    long light = 1;
+    if (key.Exists() && key.HasValue("AppsUseLightTheme") && key.QueryValue("AppsUseLightTheme", &light))
+    {
+        return light == 0;
+    }
+    return false;
+#else
+    return wxSystemSettings::GetAppearance().IsDark();
+#endif
+}
+
+void Ui::SetColours(wxWindow* window, const wxColour* background, const wxColour* foreground)
+{
+    if (!window)
+    {
+        return;
+    }
+    if (background)
+    {
+        window->SetBackgroundColour(*background);
+    }
+    if (foreground)
+    {
+        window->SetForegroundColour(*foreground);
+    }
+    std::map<wxWindow*, Themed>& windows = ThemedWindows();
+    std::map<wxWindow*, Themed>::iterator it = windows.find(window);
+    if (it == windows.end())
+    {
+        Themed themed = { background, foreground };
+        windows[window] = themed;
+        // Destroy events also come up from child windows: only this one's counts.
+        window->Bind(wxEVT_DESTROY, [window](wxWindowDestroyEvent& event)
+        {
+            if (event.GetEventObject() == window)
+            {
+                ThemedWindows().erase(window);
+            }
+            event.Skip();
+        });
+    }
+    else
+    {
+        if (background)
+        {
+            it->second.background = background;
+        }
+        if (foreground)
+        {
+            it->second.foreground = foreground;
+        }
+    }
+}
+
+void Ui::ThemeNativeParts(wxWindow* topLevel)
+{
+#ifdef __WXMSW__
+    if (topLevel)
+    {
+        ThemeTitleBar((HWND)topLevel->GetHWND(), g_dark);
+        ThemeScrollBars(topLevel, g_dark);
+    }
+#else
+    wxUnusedVar(topLevel);
+#endif
+}
+
+void Ui::ApplyTheme(bool dark)
+{
+    g_dark = dark;
+    SetPalette(dark);
+    std::map<wxWindow*, Themed>& windows = ThemedWindows();
+    for (std::map<wxWindow*, Themed>::iterator it = windows.begin(); it != windows.end(); ++it)
+    {
+        if (it->second.background)
+        {
+            it->first->SetBackgroundColour(*it->second.background);
+        }
+        if (it->second.foreground)
+        {
+            it->first->SetForegroundColour(*it->second.foreground);
+        }
+    }
+#ifdef __WXMSW__
+    SetAppDarkMode(dark);
+    ::EnumThreadWindows(::GetCurrentThreadId(), ThemeTooltip, dark ? 1 : 0);
+#endif
+    for (wxWindowList::compatibility_iterator node = wxTopLevelWindows.GetFirst(); node; node = node->GetNext())
+    {
+        ThemeNativeParts(node->GetData());
+        RefreshTree(node->GetData());
     }
 }
 
@@ -552,15 +901,15 @@ FlatButton::Look FlatButton::CurrentLook() const
         }
         else if (m_kind == Toggle && m_checked)
         {
-            look.fill = wxColour(178, 204, 232);
+            look.fill = Ui::kCheckedDisabled;
             look.border = look.fill;
-            look.text = *wxWHITE;
+            look.text = Ui::kOnAccent;
         }
         else
         {
-            look.fill = Ui::kSubtle;
-            look.border = wxColour(225, 228, 232);
-            look.text = wxColour(160, 165, 171);
+            look.fill = Ui::kDisabledFill;
+            look.border = Ui::kDisabledBorder;
+            look.text = Ui::kDisabledText;
         }
         return look;
     }
@@ -570,25 +919,25 @@ FlatButton::Look FlatButton::CurrentLook() const
     case Primary:
         look.fill = pressed ? Ui::kAccentPressed : m_hover ? Ui::kAccentHover : Ui::kAccent;
         look.border = look.fill;
-        look.text = *wxWHITE;
+        look.text = Ui::kOnAccent;
         break;
     case Link:
         if (m_hover)
         {
-            look.fill = pressed ? wxColour(219, 232, 247) : Ui::kHover;
+            look.fill = pressed ? Ui::kLinkPressed : Ui::kHover;
         }
         look.text = pressed ? Ui::kAccentPressed : Ui::kAccent;
         break;
     case Danger:
         if (m_hover)
         {
-            look.fill = pressed ? wxColour(248, 206, 210) : Ui::kDangerBg;
+            look.fill = pressed ? Ui::kDangerPressed : Ui::kDangerBg;
         }
         look.text = Ui::kDanger;
         break;
     default:
-        look.fill = pressed ? wxColour(232, 234, 237) : m_hover ? wxColour(246, 247, 249) : Ui::kWindow;
-        look.border = m_hover ? wxColour(176, 181, 189) : Ui::kBorder;
+        look.fill = pressed ? Ui::kControlPressed : m_hover ? Ui::kControlHover : Ui::kControl;
+        look.border = m_hover ? Ui::kBorderHover : Ui::kBorder;
         look.text = m_kind == Toggle ? Ui::kTextSecondary : Ui::kText;
         break;
     }
@@ -621,7 +970,7 @@ void FlatButton::OnPaint(wxPaintEvent&)
             if (m_keyboardFocus && HasFocus())
             {
                 const bool filled = m_kind == Primary || (m_kind == Toggle && m_checked);
-                gc->SetPen(wxPen(filled ? *wxWHITE : Ui::kAccent));
+                gc->SetPen(wxPen(filled ? Ui::kOnAccent : Ui::kAccent));
                 gc->SetBrush(*wxTRANSPARENT_BRUSH);
                 gc->DrawRoundedRectangle(2.5, 2.5, size.x - 5.0, size.y - 5.0, std::max(1.0, radius - 2.0));
             }
@@ -741,18 +1090,19 @@ void FlatButton::OnKeyDown(wxKeyEvent& event)
 
 // ---------------------------------------------------------------------------
 
-Card::Card(wxWindow* parent, const wxColour& fill, const wxColour& border, int radius) :
+Card::Card(wxWindow* parent, const wxColour* fill, const wxColour* border, int radius) :
     wxPanel(parent, wxID_ANY),
     m_content(new wxBoxSizer(wxVERTICAL)),
     m_bannerSpace(nullptr),
-    m_fill(fill),
+    m_fill(fill ? fill : &Ui::kCard),
     m_border(border),
     m_radius(radius),
     m_banner(false),
     m_seed(0)
 {
     SetBackgroundStyle(wxBG_STYLE_PAINT);
-    SetBackgroundColour(fill);
+    // The children (text, buttons) paint their background in the card's colour.
+    Ui::SetColours(this, m_fill);
     wxBoxSizer* outer = new wxBoxSizer(wxVERTICAL);
     m_bannerSpace = outer->Add(0, 0);
     outer->Add(m_content, 1, wxEXPAND);
@@ -766,17 +1116,20 @@ Card::Card(wxWindow* parent, const wxColour& fill, const wxColour& border, int r
     });
 }
 
-void Card::SetColours(const wxColour& fill, const wxColour& border)
+void Card::SetColours(const wxColour* fill, const wxColour* border)
 {
+    if (!fill)
+    {
+        fill = &Ui::kCard;
+    }
     if (fill == m_fill && border == m_border)
     {
         return;
     }
     m_fill = fill;
     m_border = border;
-    SetBackgroundColour(fill);
+    Ui::SetColours(this, m_fill);
     Refresh();
-    // The children (text, buttons) paint their background in the card's colour.
     for (wxWindowList::compatibility_iterator node = GetChildren().GetFirst(); node; node = node->GetNext())
     {
         node->GetData()->Refresh();
@@ -916,7 +1269,7 @@ void Card::OnPaint(wxPaintEvent&)
         if (gc)
         {
             gc->SetPen(*wxTRANSPARENT_PEN);
-            gc->SetBrush(wxBrush(m_fill));
+            gc->SetBrush(wxBrush(*m_fill));
             gc->DrawRoundedRectangle(0, 0, size.x, size.y, radius);
         }
     }
@@ -927,12 +1280,12 @@ void Card::OnPaint(wxPaintEvent&)
         dc.DrawBitmap(BannerBitmap(wxSize(size.x, bannerHeight)), 0, 0, true);
     }
 
-    if (m_border.IsOk())
+    if (m_border)
     {
         std::unique_ptr<wxGraphicsContext> gc(wxGraphicsContext::CreateFromUnknownDC(dc));
         if (gc)
         {
-            gc->SetPen(wxPen(m_border));
+            gc->SetPen(wxPen(*m_border));
             gc->SetBrush(*wxTRANSPARENT_BRUSH);
             gc->DrawRoundedRectangle(0.5, 0.5, size.x - 1.0, size.y - 1.0, radius);
         }
@@ -1334,7 +1687,7 @@ void WrapLabel::OnPaint(wxPaintEvent&)
                 // An outline that's a little thicker at the bottom, like a key.
                 gc->SetBrush(wxBrush(Ui::kBorder));
                 gc->DrawRoundedRectangle(kx, ky, kw, kh, radius);
-                gc->SetBrush(wxBrush(*wxWHITE));
+                gc->SetBrush(wxBrush(Ui::kKey));
                 gc->DrawRoundedRectangle(kx + 1, ky + 1, kw - 2, kh - 3, std::max(1.0, radius - 1));
             }
         }
@@ -1360,5 +1713,114 @@ void WrapLabel::OnPaint(wxPaintEvent&)
             dc.SetTextForeground(GetForegroundColour());
             dc.DrawText(part.text, placed[i].x, placed[i].y + (lineHeight - m_textHeight) / 2);
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+
+SearchBox::SearchBox(wxWindow* parent, const wxString& hint) :
+    wxPanel(parent, wxID_ANY),
+    m_text(nullptr),
+    m_clear(nullptr),
+    m_focused(false)
+{
+    SetBackgroundStyle(wxBG_STYLE_PAINT);
+    Ui::SetColours(this, &Ui::kCard);
+
+    wxBoxSizer* row = new wxBoxSizer(wxHORIZONTAL);
+    row->AddSpacer(FromDIP(9));
+    if (Ui::HasIconFont())
+    {
+        wxStaticText* icon = new wxStaticText(this, wxID_ANY, wxString(Ui::kGlyphSearch));
+        icon->SetFont(Ui::IconFont(GetFont()));
+        Ui::SetColours(icon, nullptr, &Ui::kTextSecondary);
+        icon->Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent&) { m_text->SetFocus(); });
+        row->Add(icon, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(7));
+    }
+    m_text = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxBORDER_NONE);
+    m_text->SetHint(hint);
+    Ui::SetColours(m_text, &Ui::kCard, &Ui::kText);
+    row->Add(m_text, 1, wxALIGN_CENTER_VERTICAL | wxTOP | wxBOTTOM, FromDIP(7));
+    m_clear = new FlatButton(this, "Clear search", FlatButton::Link, Ui::kGlyphClose, true);
+    m_clear->SetIconOnly(true);
+    m_clear->SetToolTip("Clear the search (Esc)");
+    m_clear->Bind(wxEVT_BUTTON, [this](wxCommandEvent&)
+    {
+        Clear();
+        m_text->SetFocus();
+    });
+    row->Add(m_clear, 0, wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT, FromDIP(3));
+    m_clear->Hide();
+    SetSizer(row);
+
+    m_text->Bind(wxEVT_TEXT, [this](wxCommandEvent& event)
+    {
+        ShowClearButton();
+        event.Skip();
+    });
+    // Escape empties the box (char-hook events come up from the focused text control).
+    Bind(wxEVT_CHAR_HOOK, [this](wxKeyEvent& event)
+    {
+        if (event.GetKeyCode() == WXK_ESCAPE && !m_text->IsEmpty())
+        {
+            Clear();
+            return;
+        }
+        event.Skip();
+    });
+    m_text->Bind(wxEVT_SET_FOCUS, [this](wxFocusEvent& event)
+    {
+        m_focused = true;
+        Refresh();
+        event.Skip();
+    });
+    m_text->Bind(wxEVT_KILL_FOCUS, [this](wxFocusEvent& event)
+    {
+        m_focused = false;
+        Refresh();
+        event.Skip();
+    });
+    Bind(wxEVT_LEFT_DOWN, [this](wxMouseEvent&) { m_text->SetFocus(); });
+    Bind(wxEVT_PAINT, &SearchBox::OnPaint, this);
+    Bind(wxEVT_SIZE, [this](wxSizeEvent& event)
+    {
+        Refresh();
+        event.Skip();
+    });
+}
+
+wxString SearchBox::GetValue() const
+{
+    return m_text->GetValue();
+}
+
+void SearchBox::Clear()
+{
+    m_text->Clear();
+    ShowClearButton();
+}
+
+void SearchBox::ShowClearButton()
+{
+    const bool show = !m_text->IsEmpty();
+    if (m_clear->IsShown() != show)
+    {
+        m_clear->Show(show);
+        Layout();
+    }
+}
+
+void SearchBox::OnPaint(wxPaintEvent&)
+{
+    wxAutoBufferedPaintDC dc(this);
+    dc.SetBackground(wxBrush(GetParent()->GetBackgroundColour()));
+    dc.Clear();
+    const wxSize size = GetClientSize();
+    std::unique_ptr<wxGraphicsContext> gc(wxGraphicsContext::CreateFromUnknownDC(dc));
+    if (gc && size.x > 2 && size.y > 2)
+    {
+        gc->SetBrush(wxBrush(Ui::kCard));
+        gc->SetPen(wxPen(m_focused ? Ui::kAccent : Ui::kBorder));
+        gc->DrawRoundedRectangle(0.5, 0.5, size.x - 1.0, size.y - 1.0, FromDIP(5));
     }
 }

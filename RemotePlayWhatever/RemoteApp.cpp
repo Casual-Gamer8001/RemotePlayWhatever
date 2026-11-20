@@ -203,6 +203,8 @@ int RemoteApp::OnRun()
     {
         m_callbackRunner.Start(200);
 
+        // Light or dark from the start (the windows read the palette as they're built).
+        ApplySavedTheme();
         m_friendsList = new FriendsListFrame(m_inviteHandler);
 
         // Hidden until a guest connects, then it pops itself up.
@@ -218,6 +220,8 @@ int RemoteApp::OnRun()
         {
             m_friendsList->SetTray(new RpwTrayIcon(m_friendsList, m_controlFrame, m_inviteHandler));
         }
+        // Title bars, scroll bars and tooltips too, now that the windows exist.
+        ApplySavedTheme();
         // Started with Windows: stay in the tray until the host needs it.
         m_friendsList->Show(!(m_startMinimized && tray));
 

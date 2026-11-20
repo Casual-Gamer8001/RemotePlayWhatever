@@ -1,7 +1,6 @@
 #include <wx/wx.h>
 #include <wx/clipbrd.h>
 #include <wx/config.h>
-#include <wx/srchctrl.h>
 #include <wx/time.h>
 #include <algorithm>
 #include <cstring>
@@ -44,6 +43,11 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     wxFrame(NULL, wxID_ANY, _("Remote Play Whatever"), wxPoint(50, 50), wxDefaultSize),
     m_pRemoteInvite(handler),
     m_body(nullptr),
+    m_columns(nullptr),
+    m_leftColumn(nullptr),
+    m_rightColumn(nullptr),
+    m_columnDivider(nullptr),
+    m_wide(false),
     m_updateCard(nullptr),
     m_updateTitle(nullptr),
     m_updateNotes(nullptr),
@@ -115,30 +119,48 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     });
 #endif
 
+    // Two columns side by side in a wide window (UpdateColumns), one otherwise:
+    // the update bar and session card, then the search box and friends list.
     m_body = new wxPanel(this, wxID_ANY);
-    m_body->SetBackgroundColour(Ui::kWindow);
-    wxBoxSizer* bodySizer = new wxBoxSizer(wxVERTICAL);
-    BuildUpdateBar(bodySizer);
-    BuildSessionCard(bodySizer);
+    Ui::SetColours(m_body, &Ui::kWindow);
+    m_columns = new wxBoxSizer(wxVERTICAL);
+    m_leftColumn = new wxBoxSizer(wxVERTICAL);
+    m_rightColumn = new wxBoxSizer(wxVERTICAL);
+    BuildUpdateBar(m_leftColumn);
+    BuildSessionCard(m_leftColumn);
 
-    m_search = new wxSearchCtrl(m_body, wxID_ANY);
-    m_search->SetDescriptiveText("Search friends or games");
-    m_search->ShowCancelButton(true);
-    bodySizer->Add(m_search, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, FromDIP(10));
+    m_search = new SearchBox(m_body, "Search friends or games");
+    m_rightColumn->Add(m_search, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, FromDIP(10));
     m_search->Bind(wxEVT_TEXT, [this](wxCommandEvent&) { ApplyFilter(); });
-    m_search->Bind(wxEVT_SEARCHCTRL_CANCEL_BTN, [this](wxCommandEvent&) { m_search->Clear(); ApplyFilter(); });
 
-    BuildFriendsList(bodySizer);
-    m_body->SetSizer(bodySizer);
+    BuildFriendsList(m_rightColumn);
+    m_columnDivider = new wxWindow(m_body, wxID_ANY);
+    Ui::SetColours(m_columnDivider, &Ui::kDivider);
+    m_columnDivider->SetMinSize(wxSize(1, -1));
+    m_columnDivider->Hide();
+    m_columns->Add(m_leftColumn, 0, wxEXPAND);
+    m_columns->Add(m_columnDivider, 0, wxEXPAND);
+    m_columns->Add(m_rightColumn, 1, wxEXPAND);
+    m_body->SetSizer(m_columns);
     // The search box gets the focus first (as before), so typing a name
     // filters the list straight away; Tab then goes on to the buttons.
     m_search->MoveBeforeInTabOrder(m_updateCard);
 
-    wxBoxSizer* frameSizer = new wxBoxSizer(wxVERTICAL);
-    frameSizer->Add(m_body, 1, wxEXPAND);
+    // Centred, with a maximum width when the window is very wide (UpdateColumns).
+    wxBoxSizer* frameSizer = new wxBoxSizer(wxHORIZONTAL);
+    frameSizer->AddStretchSpacer();
+    frameSizer->Add(m_body, 0, wxEXPAND);
+    frameSizer->AddStretchSpacer();
     SetSizer(frameSizer);
+    Ui::SetColours(this, &Ui::kWindow);
     SetMinSize(FromDIP(wxSize(300, 440)));
     SetSize(FromDIP(wxSize(340, 690)));
+    Bind(wxEVT_SIZE, [this](wxSizeEvent& event)
+    {
+        UpdateColumns();
+        event.Skip();
+    });
+    UpdateColumns();
     Layout();
 
     Bind(EVT_FRIEND_INVITE, &FriendsListFrame::OnFriendInvite, this);
@@ -155,26 +177,59 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     m_updater->StartAutomaticChecks();
 }
 
+void FriendsListFrame::UpdateColumns()
+{
+    if (!m_body || !m_columns)
+    {
+        return;
+    }
+    const int width = GetClientSize().x;
+    // Two columns from 660 DIP wide; back to one below 620, so it doesn't
+    // flip back and forth at one width.
+    const bool wide = m_wide ? width >= FromDIP(620) : width >= FromDIP(660);
+    // Up to about 940 DIP, in the middle of a wider window (an ultrawide
+    // screen, say), so the Invite buttons stay near the names.
+    const int bodyWidth = wide ? std::min(width, FromDIP(940)) : width;
+    m_body->SetMinSize(wxSize(bodyWidth, -1));
+    if (wide == m_wide)
+    {
+        return;
+    }
+    m_wide = wide;
+    m_columns->SetOrientation(wide ? wxHORIZONTAL : wxVERTICAL);
+    m_leftColumn->SetMinSize(wide ? wxSize(FromDIP(340), -1) : wxSize(-1, -1));
+    m_columnDivider->Show(wide);
+    // The search box starts the right column, so there it needs a top margin too.
+    wxSizerItem* search = m_rightColumn->GetItem(m_search);
+    if (search)
+    {
+        search->SetFlag(wide ? (wxALL | wxEXPAND) : (wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND));
+    }
+    Layout();
+    m_body->Layout();
+    m_friendsListContainer->FitInside();
+}
+
 void FriendsListFrame::BuildUpdateBar(wxSizer* sizer)
 {
-    m_updateCard = new Card(m_body, Ui::kInfoBg, Ui::kInfoBorder);
+    m_updateCard = new Card(m_body, &Ui::kInfoBg, &Ui::kInfoBorder);
     wxBoxSizer* row = new wxBoxSizer(wxHORIZONTAL);
     if (Ui::HasIconFont())
     {
         wxStaticText* icon = new wxStaticText(m_updateCard, wxID_ANY, wxString(Ui::kGlyphDownload));
         icon->SetFont(Ui::IconFont(GetFont()).Scaled(1.25f));
-        icon->SetForegroundColour(Ui::kAccent);
+        Ui::SetColours(icon, nullptr, &Ui::kAccent);
         row->Add(icon, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(10));
     }
     wxBoxSizer* text = new wxBoxSizer(wxVERTICAL);
     m_updateTitle = new wxStaticText(m_updateCard, wxID_ANY, wxEmptyString);
     m_updateTitle->SetFont(Ui::SemiBold(GetFont()));
-    m_updateTitle->SetForegroundColour(Ui::kText);
+    Ui::SetColours(m_updateTitle, nullptr, &Ui::kText);
     text->Add(m_updateTitle, 0, wxEXPAND);
     // What's new in that version, in small grey text (all of it in the button's tooltip).
     m_updateNotes = new WrapLabel(m_updateCard);
     m_updateNotes->SetFont(GetFont().Scaled(0.92f));
-    m_updateNotes->SetForegroundColour(Ui::kTextSecondary);
+    Ui::SetColours(m_updateNotes, nullptr, &Ui::kTextSecondary);
     text->Add(m_updateNotes, 0, wxEXPAND | wxTOP, FromDIP(2));
     row->Add(text, 1, wxALIGN_CENTER_VERTICAL);
     m_updateButton = new FlatButton(m_updateCard, "Update", FlatButton::Primary, 0, true);
@@ -199,7 +254,7 @@ void FriendsListFrame::BuildSessionCard(wxSizer* sizer)
     m_stateText = new wxStaticText(m_gameCard, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize,
                                    wxST_NO_AUTORESIZE | wxST_ELLIPSIZE_END);
     m_stateText->SetFont(Ui::SemiBold(GetFont()));
-    m_stateText->SetForegroundColour(Ui::kText);
+    Ui::SetColours(m_stateText, nullptr, &Ui::kText);
     m_stateText->SetMinSize(wxSize(FromDIP(40), m_stateText->GetCharHeight()));
     stateRow->Add(m_stateText, 1, wxALIGN_CENTER_VERTICAL);
     content->Add(stateRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, pad);
@@ -209,7 +264,7 @@ void FriendsListFrame::BuildSessionCard(wxSizer* sizer)
     detailRow->AddSpacer(FromDIP(16));
     m_stateDetail = new WrapLabel(m_gameCard);
     m_stateDetail->SetFont(GetFont().Scaled(0.92f));
-    m_stateDetail->SetForegroundColour(Ui::kTextSecondary);
+    Ui::SetColours(m_stateDetail, nullptr, &Ui::kTextSecondary);
     detailRow->Add(m_stateDetail, 1);
     content->AddSpacer(FromDIP(2));
     content->Add(detailRow, 0, wxEXPAND | wxLEFT | wxRIGHT, pad);
@@ -231,7 +286,7 @@ void FriendsListFrame::BuildSessionCard(wxSizer* sizer)
     content->Add(m_waitingSizer, 0, wxEXPAND | wxLEFT | wxRIGHT, pad);
 
     // A short message: invite sent, link copied, why a session ended...
-    m_noticeCard = new Card(m_gameCard, Ui::kGoodBg, wxNullColour, 6);
+    m_noticeCard = new Card(m_gameCard, &Ui::kGoodBg, nullptr, 6);
     wxBoxSizer* noticeRow = new wxBoxSizer(wxHORIZONTAL);
     if (Ui::HasIconFont())
     {
@@ -253,12 +308,12 @@ void FriendsListFrame::BuildSessionCard(wxSizer* sizer)
 wxWindow* FriendsListFrame::AddSectionHeader(wxStaticText** label, FlatButton** toggle)
 {
     wxPanel* header = new wxPanel(m_friendsListContainer, wxID_ANY);
-    header->SetBackgroundColour(Ui::kWindow);
+    Ui::SetColours(header, &Ui::kWindow);
     wxBoxSizer* row = new wxBoxSizer(wxHORIZONTAL);
     row->AddSpacer(FromDIP(14));
     *label = new wxStaticText(header, wxID_ANY, wxEmptyString);
     (*label)->SetFont(Ui::SemiBold(GetFont()).Scaled(0.88f));
-    (*label)->SetForegroundColour(Ui::kTextSecondary);
+    Ui::SetColours(*label, nullptr, &Ui::kTextSecondary);
     row->Add(*label, 1, wxALIGN_CENTER_VERTICAL);
     if (toggle)
     {
@@ -276,7 +331,7 @@ wxWindow* FriendsListFrame::AddSectionHeader(wxStaticText** label, FlatButton** 
 void FriendsListFrame::BuildFriendsList(wxSizer* sizer)
 {
     m_friendsListContainer = new wxScrolledWindow(m_body, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxVSCROLL);
-    m_friendsListContainer->SetBackgroundColour(Ui::kWindow);
+    Ui::SetColours(m_friendsListContainer, &Ui::kWindow);
     // Vertical scrolling only: the rows always fit the width.
     m_friendsListContainer->SetScrollRate(0, FromDIP(8));
     m_friendsListSizer = new wxBoxSizer(wxVERTICAL);
@@ -307,7 +362,7 @@ void FriendsListFrame::BuildFriendsList(wxSizer* sizer)
     m_friendsListSizer->Add(m_offlineSizer, 0, wxEXPAND);
 
     m_noMatches = new wxStaticText(m_friendsListContainer, wxID_ANY, "No friends match your search.");
-    m_noMatches->SetForegroundColour(Ui::kTextSecondary);
+    Ui::SetColours(m_noMatches, nullptr, &Ui::kTextSecondary);
     m_noMatches->Hide();
     m_friendsListSizer->Add(m_noMatches, 0, wxLEFT | wxRIGHT | wxTOP, FromDIP(14));
     m_friendsListSizer->AddSpacer(FromDIP(8));
@@ -408,6 +463,11 @@ WXLRESULT FriendsListFrame::MSWWindowProc(WXUINT msg, WXWPARAM wParam, WXLPARAM 
         ShowFromTray();
         return 0;
     }
+    // Windows switched between light and dark mode (Settings > Colors).
+    if (msg == WM_SETTINGCHANGE && lParam && ::lstrcmpiW((LPCWSTR)lParam, L"ImmersiveColorSet") == 0)
+    {
+        CallAfter([]() { ApplySavedTheme(); });
+    }
     return wxFrame::MSWWindowProc(msg, wParam, lParam);
 }
 #endif
@@ -465,7 +525,7 @@ void FriendsListFrame::UpdateStatus()
     // The state line, the line under it, and the same in a sentence for the tray.
     wxString state, detail, trayText;
     wxColour dot = Ui::kTextMuted;
-    wxColour detailColour = Ui::kTextSecondary;
+    const wxColour* detailColour = &Ui::kTextSecondary;
     if (!signedIn)
     {
         state = "Steam isn't signed in";
@@ -479,7 +539,7 @@ void FriendsListFrame::UpdateStatus()
                              wxString::Format("%u guests connected", guests);
         state = "Sharing" + Ui::Separator() + who;
         detail = desktop ? "Guests can see your whole screen" : "Only the game is shared, not your screen";
-        detailColour = desktop ? Ui::kWarnText : Ui::kTextSecondary;
+        detailColour = desktop ? &Ui::kWarnText : &Ui::kTextSecondary;
         dot = Ui::kGood;
         trayText = "Sharing " + gameInText + ": " +
                    (guests == 0 ? wxString("waiting for guests to join.") : who + ".") +
@@ -494,9 +554,9 @@ void FriendsListFrame::UpdateStatus()
     else
     {
         state = "Ready to share";
-        detail = nonSteam ? "Not a Steam game, so guests will see your whole screen"
+        detail = nonSteam ? "Not a Steam game, so your whole screen is shared"
                           : "Only the game will be shared, not your screen";
-        detailColour = nonSteam ? Ui::kWarnText : Ui::kTextSecondary;
+        detailColour = nonSteam ? &Ui::kWarnText : &Ui::kTextSecondary;
         dot = Ui::kGood;
         trayText = "Ready to share: " + gameInText +
                    (nonSteam ? " (non-Steam game, so your whole screen will be shared)" : "");
@@ -540,9 +600,9 @@ void FriendsListFrame::UpdateStatus()
         m_stateDetail->SetLabel(detail);
         relayout = true;
     }
-    if (m_stateDetail->GetForegroundColour() != detailColour)
+    if (m_stateDetail->GetForegroundColour() != *detailColour)
     {
-        m_stateDetail->SetForegroundColour(detailColour);
+        Ui::SetColours(m_stateDetail, nullptr, detailColour);
         m_stateDetail->Refresh();
     }
 
@@ -606,28 +666,29 @@ void FriendsListFrame::UpdateStatus()
         m_noticeKindShown = m_noticeKind;
         if (!m_notice.empty())
         {
-            wxColour background = Ui::kInfoBg, text = Ui::kAccentPressed;
+            const wxColour* background = &Ui::kInfoBg;
+            const wxColour* text = &Ui::kInfoText;
             wchar_t icon = Ui::kGlyphInfo;
             if (m_noticeKind == NoticeSuccess)
             {
-                background = Ui::kGoodBg;
-                text = Ui::kGoodText;
+                background = &Ui::kGoodBg;
+                text = &Ui::kGoodText;
                 icon = Ui::kGlyphCheck;
             }
             else if (m_noticeKind == NoticeWarning)
             {
-                background = Ui::kWarnBg;
-                text = Ui::kWarnText;
+                background = &Ui::kWarnBg;
+                text = &Ui::kWarnText;
                 icon = Ui::kGlyphWarning;
             }
-            m_noticeCard->SetColours(background, wxNullColour);
-            m_noticeText->SetForegroundColour(text);
+            m_noticeCard->SetColours(background, nullptr);
+            Ui::SetColours(m_noticeText, nullptr, text);
             m_noticeText->SetLabel(m_notice);
             m_noticeText->Refresh();
             if (m_noticeIcon)
             {
                 m_noticeIcon->SetLabel(wxString(icon));
-                m_noticeIcon->SetForegroundColour(text);
+                Ui::SetColours(m_noticeIcon, nullptr, text);
             }
         }
         m_noticeCard->Show(!m_notice.empty());
@@ -716,19 +777,19 @@ bool FriendsListFrame::RefreshWaitingInvites()
     {
         const uint64 id = waiting[i].steamID;
         const uint32 guest = waiting[i].guestID;
-        Card* row = new Card(m_gameCard, Ui::kSubtle, wxNullColour, 6);
+        Card* row = new Card(m_gameCard, &Ui::kSubtle, nullptr, 6);
         wxBoxSizer* line = new wxBoxSizer(wxHORIZONTAL);
         if (Ui::HasIconFont())
         {
             wxStaticText* icon = new wxStaticText(row, wxID_ANY, wxString(Ui::kGlyphClock));
             icon->SetFont(Ui::IconFont(GetFont()));
-            icon->SetForegroundColour(Ui::kTextSecondary);
+            Ui::SetColours(icon, nullptr, &Ui::kTextSecondary);
             line->Add(icon, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
         }
         wxStaticText* text = new wxStaticText(row, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize,
                                               wxST_NO_AUTORESIZE | wxST_ELLIPSIZE_END);
         text->SetLabelText(labels[i]);
-        text->SetForegroundColour(Ui::kText);
+        Ui::SetColours(text, nullptr, &Ui::kText);
         text->SetMinSize(wxSize(FromDIP(40), text->GetCharHeight()));
         text->SetToolTip(id ? labels[i] + " to join." : wxString("Nobody has opened this guest link yet."));
         line->Add(text, 1, wxALIGN_CENTER_VERTICAL);
@@ -753,7 +814,7 @@ bool FriendsListFrame::RefreshWaitingInvites()
     {
         wxStaticText* more = new wxStaticText(m_gameCard, wxID_ANY,
                                               wxString::Format("and %u more", (unsigned)(waiting.size() - kShown)));
-        more->SetForegroundColour(Ui::kTextSecondary);
+        Ui::SetColours(more, nullptr, &Ui::kTextSecondary);
         m_waitingSizer->Add(more, 0, wxTOP, FromDIP(6));
     }
     return true;
@@ -882,9 +943,9 @@ void FriendsListFrame::RefreshUpdateButton()
     }
     m_updateButton->Enable(!working);
 
-    // What's new: a line under the title, the whole list in the button's tooltip.
-    const wxString notes = build > 0 ? m_updater->NotesSummary(110) : wxString();
-    const wxString notesText = notes.empty() ? wxString("Remote Play Whatever restarts with it.") : "New: " + notes;
+    // What's new: up to two short lines under the title, the whole list in the button's tooltip.
+    const wxString notes = build > 0 ? m_updater->NotesSummary(70) : wxString();
+    const wxString notesText = notes.empty() ? wxString("Remote Play Whatever restarts with it.") : notes;
     if (m_updateNotes->GetLabel() != notesText)
     {
         m_updateNotes->SetLabel(notesText);
@@ -1265,7 +1326,7 @@ void FriendsListFrame::OnRemotePlayInviteResult(RemotePlayInviteResult_t* invite
         const wxString name = wxString::FromUTF8(persona && *persona ? persona : "your friend");
         std::map<uint64, FriendPanel*>::const_iterator panel = m_friendPanels.find(id);
         const bool offline = panel != m_friendPanels.end() && !panel->second->IsOnline();
-        ShowNotice(offline ? "Invite sent to " + name + ". They appear offline, so the link waits for them in Steam chat."
+        ShowNotice(offline ? "Invite sent to " + name + ". They appear offline; it waits for them in Steam chat."
                            : "Invite sent to " + name + ". They'll get the link in Steam chat.");
         return;
     }
@@ -1290,7 +1351,7 @@ void FriendsListFrame::OnRemotePlayInviteResult(RemotePlayInviteResult_t* invite
     }
     if (copied)
     {
-        ShowNotice("Guest link copied. Paste it to whoever you want to play with; anyone with the link can join.");
+        ShowNotice("Guest link copied. Paste it to whoever you want to play with.");
     }
     else
     {
@@ -1302,12 +1363,12 @@ bool FriendsListFrame::ReadyToInvite()
 {
     if (!GClientContext()->SteamUser()->BLoggedOn())
     {
-        ShowNotice("Steam isn't signed in. Sign in to Steam, then try again.", NoticeWarning);
+        ShowNotice("Sign in to Steam first, then try again.", NoticeWarning);
         return false;
     }
     if (!GetRunningGameID().IsValid())
     {
-        ShowNotice("No game is running. Start the game through Steam first, then invite.", NoticeWarning);
+        ShowNotice("Start a game through Steam first, then invite.", NoticeWarning);
         return false;
     }
     return true;

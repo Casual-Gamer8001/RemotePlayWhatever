@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <ctime>
 #include "ControlFrame.h"
+#include <wx/display.h>
 #include "wxSteamStuff.h"
 #include "UiHelpers.h"
 #include "UiWidgets.h"
@@ -55,7 +56,7 @@ ControlFrame::ControlFrame(RemotePlayInviteHandler* handler) :
     m_handler(handler),
     m_body(nullptr),
     m_title(nullptr),
-    m_everyone(nullptr),
+    m_endButton(nullptr),
     m_container(nullptr),
     m_sizer(nullptr),
     m_footer(nullptr),
@@ -74,18 +75,19 @@ ControlFrame::ControlFrame(RemotePlayInviteHandler* handler) :
     SetIcons(AppIcons());
 
     m_body = new wxPanel(this, wxID_ANY);
-    m_body->SetBackgroundColour(Ui::kWindow);
+    Ui::SetColours(m_body, &Ui::kWindow);
     wxBoxSizer* bodySizer = new wxBoxSizer(wxVERTICAL);
 
     // "Guests (2)" and End session.
     wxBoxSizer* header = new wxBoxSizer(wxHORIZONTAL);
     m_title = new wxStaticText(m_body, wxID_ANY, "Guests");
     m_title->SetFont(Ui::SemiBold(GetFont()).Scaled(1.2f));
-    m_title->SetForegroundColour(Ui::kText);
+    Ui::SetColours(m_title, nullptr, &Ui::kText);
     header->Add(m_title, 1, wxALIGN_CENTER_VERTICAL);
-    FlatButton* endButton = new FlatButton(m_body, "End session");
-    endButton->SetToolTip("Disconnect everyone, cancel unused invites and guest links, and stop sharing your screen.");
-    endButton->Bind(wxEVT_BUTTON, [this](wxCommandEvent&)
+    // Only while there's a session to end (OnPoll).
+    m_endButton = new FlatButton(m_body, "End session");
+    m_endButton->SetToolTip("Disconnect everyone, cancel unused invites and guest links, and stop sharing your screen.");
+    m_endButton->Bind(wxEVT_BUTTON, [this](wxCommandEvent&)
     {
         int answer = wxMessageBox(
             "Disconnect everyone and stop sharing?\n\nUnused invites and guest links will stop working too.",
@@ -96,27 +98,15 @@ ControlFrame::ControlFrame(RemotePlayInviteHandler* handler) :
             Rebuild();
         }
     });
-    header->Add(endButton, 0, wxALIGN_CENTER_VERTICAL);
+    header->Add(m_endButton, 0, wxALIGN_CENTER_VERTICAL);
+    m_endButton->Show(m_handler->IsSessionActive());
     bodySizer->Add(header, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(14));
+    // Keeps the header the same height with or without the button.
+    header->SetMinSize(wxSize(-1, m_endButton->GetBestSize().y));
 
-    // With several guests, "Everyone" turns a peripheral on or off for all of them.
-    m_everyone = new wxPanel(m_body, wxID_ANY);
-    m_everyone->SetBackgroundColour(Ui::kWindow);
-    wxBoxSizer* everyone = new wxBoxSizer(wxHORIZONTAL);
-    wxStaticText* label = new wxStaticText(m_everyone, wxID_ANY, "Everyone:");
-    label->SetForegroundColour(Ui::kTextSecondary);
-    everyone->Add(label, 0, wxALIGN_CENTER_VERTICAL);
-    for (int i = 0; i < 3; ++i)
-    {
-        m_everyoneToggles[i] = AddToggle(m_everyone, everyone, i, kEveryone);
-    }
-    m_everyone->SetSizer(everyone);
-    bodySizer->Add(m_everyone, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(14));
-    m_everyone->Hide();
-
-    // A card per guest.
+    // A card per guest (and an "Everyone" row above them when there are several).
     m_container = new wxScrolledWindow(m_body, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxVSCROLL);
-    m_container->SetBackgroundColour(Ui::kWindow);
+    Ui::SetColours(m_container, &Ui::kWindow);
     m_container->SetScrollRate(0, FromDIP(10));
     m_sizer = new wxBoxSizer(wxVERTICAL);
     m_container->SetSizer(m_sizer);
@@ -124,15 +114,15 @@ ControlFrame::ControlFrame(RemotePlayInviteHandler* handler) :
 
     // The in-game shortcuts, with the keys drawn as keys.
     m_footer = new wxPanel(m_body, wxID_ANY);
-    m_footer->SetBackgroundColour(Ui::kFooter);
+    Ui::SetColours(m_footer, &Ui::kFooter);
     wxBoxSizer* footer = new wxBoxSizer(wxVERTICAL);
     wxWindow* divider = new wxWindow(m_footer, wxID_ANY);
-    divider->SetBackgroundColour(Ui::kDivider);
+    Ui::SetColours(divider, &Ui::kDivider);
     divider->SetMinSize(wxSize(-1, 1));
     footer->Add(divider, 0, wxEXPAND);
     m_hint = new WrapLabel(m_footer, wxEmptyString, true);
     m_hint->SetFont(GetFont().Scaled(0.92f));
-    m_hint->SetForegroundColour(Ui::kTextSecondary);
+    Ui::SetColours(m_hint, nullptr, &Ui::kTextSecondary);
     footer->Add(m_hint, 0, wxEXPAND | wxALL, FromDIP(10));
     m_footer->SetSizer(footer);
     bodySizer->Add(m_footer, 0, wxEXPAND);
@@ -259,7 +249,11 @@ void ControlFrame::ShowHint()
         {
             hint += Ui::Separator();
         }
-        hint += (i == 0 ? "[Ctrl]+[Alt]+" : "") + items[i].first + " " + items[i].second;
+        // No-break spaces inside an item, so lines only break between items
+        // (never "give it" / "back", nor a key away from its words).
+        wxString words = items[i].second;
+        words.Replace(" ", wxString(L"\u00A0"));
+        hint += (i == 0 ? "[Ctrl]+[Alt]+" : "") + items[i].first + wxString(L"\u00A0") + words;
     }
     if (!hint.empty())
     {
@@ -268,6 +262,8 @@ void ControlFrame::ShowHint()
     m_hint->SetLabel(hint);
     m_footer->Show(!hint.empty());
     Ui::Relayout(m_footer);
+    // The hint can grow to two lines (or shrink), which moves the list: fit again.
+    FitHeight();
 }
 
 void ControlFrame::OnHotKey(wxKeyEvent& evt)
@@ -335,6 +331,13 @@ bool ControlFrame::RowsMatchGuests() const
 void ControlFrame::OnPoll(wxTimerEvent&)
 {
     SetHotKeysActive(!m_handler->Guests().empty());
+
+    const bool session = m_handler->IsSessionActive();
+    if (m_endButton->IsShown() != session)
+    {
+        m_endButton->Show(session);
+        m_body->Layout();
+    }
 
     if (!RowsMatchGuests())
     {
@@ -448,13 +451,14 @@ void ControlFrame::RefreshRows()
             {
                 row.shownName = name;
                 row.name->SetLabelText(name);
-                row.name->SetToolTip(name);
+                // Guests who came in through Steam Link without an account say so in the tooltip.
+                row.name->SetToolTip(g.steamID ? name : name + " (no Steam account)");
                 row.remove->SetToolTip("Remove " + name + " from the session");
                 row.avatar->SetPerson(picture, g.steamID ? name : wxString::Format("G%u", g.player.m_unGuestID), g.key);
                 row.hasPicture = picture.IsOk();
             }
         }
-        const wxString joined = (g.steamID ? wxString() : "No Steam account" + Ui::Separator()) + JoinedText(g.joinedAt);
+        const wxString joined = JoinedText(g.joinedAt);
         if (row.joined->GetLabelText() != joined)
         {
             row.joined->SetLabelText(joined);
@@ -472,6 +476,10 @@ void ControlFrame::RefreshRows()
     }
     for (int t = 0; t < 3; ++t)
     {
+        if (!m_everyoneToggles[t])
+        {
+            continue;
+        }
         const bool on = m_handler->AllGuestsHave(t);
         m_everyoneToggles[t]->SetChecked(on);
         const wxString tip = ToggleTip(t, on, true);
@@ -490,20 +498,23 @@ void ControlFrame::Rebuild()
     Freeze();
     m_sizer->Clear(true);   // destroy the old cards
     m_rows.clear();
+    for (int t = 0; t < 3; ++t)
+    {
+        m_everyoneToggles[t] = nullptr;
+    }
 
     const std::vector<ConnectedGuest>& guests = m_handler->Guests();
     m_title->SetLabel(guests.empty() ? wxString("Guests") : wxString::Format("Guests (%u)", (unsigned)guests.size()));
-    m_everyone->Show(guests.size() >= 2);
 
     if (guests.empty())
     {
         wxStaticText* title = new wxStaticText(m_container, wxID_ANY, "No guests yet");
         title->SetFont(Ui::SemiBold(GetFont()).Scaled(1.1f));
-        title->SetForegroundColour(Ui::kText);
+        Ui::SetColours(title, nullptr, &Ui::kText);
         m_sizer->Add(title, 0, wxLEFT | wxRIGHT | wxTOP, FromDIP(16));
         WrapLabel* text = new WrapLabel(m_container, "Invite someone from the main window. They show up here when "
                                                     "they join, and this window opens by itself.");
-        text->SetForegroundColour(Ui::kTextSecondary);
+        Ui::SetColours(text, nullptr, &Ui::kTextSecondary);
         m_sizer->AddSpacer(FromDIP(4));
         m_sizer->Add(text, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(16));
     }
@@ -525,13 +536,13 @@ void ControlFrame::Rebuild()
             row.name = new wxStaticText(card, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize,
                                         wxST_NO_AUTORESIZE | wxST_ELLIPSIZE_END);
             row.name->SetFont(Ui::SemiBold(GetFont()));
-            row.name->SetForegroundColour(Ui::kText);
+            Ui::SetColours(row.name, nullptr, &Ui::kText);
             row.name->SetMinSize(wxSize(FromDIP(60), row.name->GetCharHeight()));
             text->Add(row.name, 0, wxEXPAND);
             row.joined = new wxStaticText(card, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize,
                                           wxST_NO_AUTORESIZE | wxST_ELLIPSIZE_END);
             row.joined->SetFont(GetFont().Scaled(0.92f));
-            row.joined->SetForegroundColour(Ui::kTextSecondary);
+            Ui::SetColours(row.joined, nullptr, &Ui::kTextSecondary);
             row.joined->SetMinSize(wxSize(FromDIP(60), row.joined->GetCharHeight()));
             text->Add(row.joined, 0, wxEXPAND | wxTOP, FromDIP(1));
             line->Add(text, 1, wxALIGN_CENTER_VERTICAL);
@@ -576,11 +587,54 @@ void ControlFrame::Rebuild()
             m_rows.push_back(row);
         }
         m_sizer->AddSpacer(FromDIP(12));
+
+        // With several guests, "Everyone" turns a peripheral on or off for all
+        // of them. It's laid out like a guest card (without the border), so its
+        // toggles sit right above theirs.
+        if (guests.size() >= 2)
+        {
+            Card* everyone = new Card(m_container, &Ui::kWindow, nullptr);
+            wxBoxSizer* line = new wxBoxSizer(wxHORIZONTAL);
+            line->AddSpacer(FromDIP(36 + 10));
+            wxStaticText* label = new wxStaticText(everyone, wxID_ANY, "Everyone");
+            label->SetFont(Ui::SemiBold(GetFont()));
+            Ui::SetColours(label, nullptr, &Ui::kTextSecondary);
+            line->Add(label, 1, wxALIGN_CENTER_VERTICAL);
+            for (int t = 0; t < 3; ++t)
+            {
+                m_everyoneToggles[t] = AddToggle(everyone, line, t, kEveryone);
+            }
+            line->AddSpacer(FromDIP(6) + m_rows[0].remove->GetBestSize().x);
+            everyone->Content()->AddSpacer(FromDIP(2));
+            everyone->Content()->Add(line, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(10));
+            everyone->Content()->AddSpacer(FromDIP(2));
+            m_sizer->Insert(0, everyone, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(12));
+            // First for Tab (and screen readers) too, not just on screen.
+            everyone->MoveBeforeInTabOrder(m_rows[0].remove->GetParent());
+        }
     }
 
     RefreshRows();
     m_body->Layout();
     m_container->FitInside();
     m_container->Layout();
+    FitHeight();
     Thaw();
+}
+
+void ControlFrame::FitHeight()
+{
+    // Everything outside the list (header, hint) plus what the cards need,
+    // up to three quarters of the screen.
+    const int outside = GetClientSize().y - m_container->GetSize().y;
+    const int wanted = outside + m_sizer->GetMinSize().y;
+    const int index = wxDisplay::GetFromWindow(this);
+    const wxDisplay display(index == wxNOT_FOUND ? 0u : (unsigned)index);
+    const int most = display.GetClientArea().height * 3 / 4;
+    const int height = std::max(FromDIP(200), std::min(wanted, most));
+    if (height != GetClientSize().y)
+    {
+        SetClientSize(GetClientSize().x, height);
+        m_body->Layout();
+    }
 }

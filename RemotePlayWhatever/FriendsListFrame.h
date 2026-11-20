@@ -6,18 +6,19 @@
 #include "FriendPanel.h"
 #include "RemotePlayInviteHandler.h"
 
-class wxSearchCtrl;
 class RpwTrayIcon;
 class AppUpdater;
 class Card;
 class FlatButton;
+class SearchBox;
 class StatusDot;
 class WrapLabel;
 
 // The main window: an update bar when there's a new version, a card for the
 // game being shared (its picture, what's shared, the guest link and session
 // buttons, invites nobody has used yet, short messages), then the searchable
-// friends list with an Invite button per friend.
+// friends list with an Invite button per friend. When the window is wide the
+// card and the friends list sit side by side.
 class FriendsListFrame : public wxFrame
 {
 public:
@@ -62,6 +63,8 @@ private:
     void BuildUpdateBar(wxSizer* sizer);
     void BuildSessionCard(wxSizer* sizer);
     void BuildFriendsList(wxSizer* sizer);
+    // One column, or (wide window) the card beside the friends list.
+    void UpdateColumns();
     // A section title in the friends list ("ONLINE (4)"), optionally with a
     // Show/Hide link.
     wxWindow* AddSectionHeader(wxStaticText** label, FlatButton** toggle);
@@ -83,6 +86,11 @@ private:
 
     RemotePlayInviteHandler* m_pRemoteInvite;
     wxPanel* m_body;
+    wxBoxSizer* m_columns;          // vertical, or horizontal when wide
+    wxBoxSizer* m_leftColumn;       // update bar and session card
+    wxBoxSizer* m_rightColumn;      // search box and friends list
+    wxWindow* m_columnDivider;
+    bool m_wide;
 
     // Update bar.
     Card* m_updateCard;
@@ -104,7 +112,7 @@ private:
     WrapLabel* m_noticeText;
 
     // Friends list.
-    wxSearchCtrl* m_search;
+    SearchBox* m_search;
     wxScrolledWindow* m_friendsListContainer;
     wxBoxSizer* m_friendsListSizer;
     wxWindow* m_recentHeader;
