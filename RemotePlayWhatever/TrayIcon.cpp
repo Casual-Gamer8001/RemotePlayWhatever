@@ -116,7 +116,7 @@ wxMenu* RpwTrayIcon::CreatePopupMenu()
         {
             menu->Append(idTrayUpdate, wxString::Format("Update to build %ld", m_main->AvailableUpdate()))->Enable(!busy);
         }
-        menu->Append(idTrayCheckUpdates, wxString::Format("Check for updates (you have build %ld)", AppUpdater::CurrentBuild()))->Enable(!busy);
+        menu->Append(idTrayCheckUpdates, wxString::Format("Check for updates (you have build %ld)", AppUpdater::CurrentBuild()))->Enable(m_main->CanCheckForUpdates());
         menu->AppendCheckItem(idTrayAutoUpdates, "Check for updates automatically")->Check(AppUpdater::AutoChecksEnabled());
         menu->AppendSeparator();
     }

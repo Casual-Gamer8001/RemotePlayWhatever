@@ -356,7 +356,7 @@ void FriendsListFrame::RefreshMenus()
     }
     if (bar->FindItem(idMenuCheckUpdates))
     {
-        bar->Enable(idMenuCheckUpdates, !(m_updater && m_updater->Busy()));
+        bar->Enable(idMenuCheckUpdates, !m_updater || m_updater->CanCheckNow());
     }
 }
 
@@ -1106,6 +1106,11 @@ long FriendsListFrame::AvailableUpdate() const
 bool FriendsListFrame::UpdateBusy() const
 {
     return m_updater->Busy();
+}
+
+bool FriendsListFrame::CanCheckForUpdates() const
+{
+    return m_updater->CanCheckNow();
 }
 
 void FriendsListFrame::CheckForUpdates()

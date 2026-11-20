@@ -51,8 +51,8 @@ public:
     static bool AutoChecksEnabled();
     static void SetAutoChecksEnabled(bool enabled);
 
-    // Check a little after startup and then every few hours, while the
-    // setting above is on.
+    // Check right after startup and then every few hours, while the setting
+    // above is on.
     void StartAutomaticChecks();
     // Check now. manual = the user asked, so the outcome is worth telling them.
     void Check(bool manual);
@@ -73,6 +73,9 @@ public:
     // The notes as a list, one "- note" per line.
     wxString NotesList() const;
     bool Busy() const { return m_state == Checking || m_state == Downloading || m_state == Installing || m_state == Restarting; }
+    // "Check for updates" can be clicked now (also during an automatic check,
+    // whose answer is then shown).
+    bool CanCheckNow() const { return m_state == Checking || !Busy(); }
     const wxString& Error() const { return m_error; }
 
     // In the copy started after an update: wait until the old copy (process

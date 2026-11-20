@@ -43,6 +43,7 @@ public:
     bool UpdatesSupported() const;
     long AvailableUpdate() const;
     bool UpdateBusy() const;
+    bool CanCheckForUpdates() const;
     void CheckForUpdates();
     void StartUpdate();
 

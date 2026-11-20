@@ -26,7 +26,9 @@ namespace
 {
 const char* const kInfoFile = "update.txt";
 const char* const kProgramName = "RemotePlayWhatever.exe";
-const int kFirstCheckMs = 15 * 1000;
+// The first check runs a second after the app starts (just after the window
+// appears; the request doesn't hold anything up), then every 6 hours.
+const int kFirstCheckMs = 1000;
 const int kCheckEveryMs = 6 * 60 * 60 * 1000;
 
 wxString Repo()
@@ -491,7 +493,18 @@ void AppUpdater::Shutdown()
 void AppUpdater::Check(bool manual)
 {
 #if RPW_HAS_UPDATER
-    if (!Supported() || m_shutdown || Busy())
+    if (!Supported() || m_shutdown)
+    {
+        return;
+    }
+    // Asked for while an automatic check (the one right after startup, say)
+    // is still running: report that check's answer instead.
+    if (manual && m_state == Checking)
+    {
+        m_manual = true;
+        return;
+    }
+    if (Busy())
     {
         return;
     }
