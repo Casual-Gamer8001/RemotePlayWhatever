@@ -21,6 +21,9 @@ public:
     void ShowHiddenHintOnce();
     // Say a new version is available (once per build).
     void ShowUpdateBalloon(long build);
+    // A notification by the clock (Windows), e.g. answering a shortcut used
+    // in a game.
+    void Notify(const wxString& title, const wxString& text, bool warning = false);
 
 protected:
     virtual wxMenu* CreatePopupMenu() override;

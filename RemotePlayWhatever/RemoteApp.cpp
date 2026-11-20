@@ -171,6 +171,10 @@ int RemoteApp::OnRun()
 
         // Hidden until a guest connects, then it pops itself up.
         m_controlFrame = new ControlFrame(m_inviteHandler);
+        if (m_friendsList->HasGuestLinkHotKey())
+        {
+            m_controlFrame->AddShortcutHint("L copy a guest link");
+        }
 
         // Icon next to the clock; minimizing the main window hides it there.
         if (wxTaskBarIcon::IsAvailable())
