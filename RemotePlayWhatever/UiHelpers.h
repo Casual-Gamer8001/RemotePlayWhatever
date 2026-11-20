@@ -45,4 +45,17 @@ void RefreshStartWithWindows();
 // that character in every app. Checks every keyboard layout the user has.
 bool CtrlAltKeyIsFree(int key);
 
+// Light or dark: follow Windows (the default), or always one of them (tray
+// menu > Theme). Saved as Options\Theme = auto / light / dark.
+enum ThemeChoice
+{
+    ThemeAuto,
+    ThemeLight,
+    ThemeDark,
+};
+ThemeChoice LoadThemeChoice();
+void SaveThemeChoice(ThemeChoice choice);
+// Switch the windows to the saved choice (for Auto: Windows' current mode).
+void ApplySavedTheme();
+
 #endif // UIHELPERS_H

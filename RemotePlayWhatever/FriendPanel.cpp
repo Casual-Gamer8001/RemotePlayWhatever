@@ -26,7 +26,7 @@ FriendPanel::FriendPanel(wxWindow* parent, CSteamID friendID) :
     m_inviteState(InviteReady)
 {
     SetBackgroundStyle(wxBG_STYLE_PAINT);
-    SetBackgroundColour(Ui::kWindow);
+    Ui::SetColours(this, &Ui::kWindow);
 
     m_invite = new FlatButton(this, "Invite", FlatButton::Secondary, 0, true);
     // Wide enough for "Sending...", so the name beside it doesn't move.
@@ -293,6 +293,13 @@ wxColour FriendPanel::StatusColour() const
 
 void FriendPanel::OnPaint(wxPaintEvent&)
 {
+    // The highlight colour comes from the palette, which changes with the theme.
+    const wxColour want = m_hover ? Ui::kHover : Ui::kWindow;
+    if (GetBackgroundColour() != want)
+    {
+        SetBackgroundColour(want);
+        m_invite->Refresh();
+    }
     wxAutoBufferedPaintDC dc(this);
     const wxColour background = GetBackgroundColour();
     dc.SetBackground(wxBrush(background));

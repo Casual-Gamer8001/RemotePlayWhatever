@@ -18,6 +18,9 @@ enum
     idTrayCheckUpdates,
     idTrayAutoUpdates,
     idTrayStartWithWindows,
+    idTrayThemeAuto,
+    idTrayThemeLight,
+    idTrayThemeDark,
     idTrayQuit,
 };
 
@@ -121,6 +124,13 @@ wxMenu* RpwTrayIcon::CreatePopupMenu()
     menu->AppendCheckItem(idTrayStartWithWindows, "Start with Windows")->Check(StartsWithWindows());
 #endif
     menu->AppendCheckItem(idTraySounds, "Sounds when guests join or leave")->Check(SoundsEnabled());
+    // Light or dark, or the same as Windows (the default).
+    wxMenu* theme = new wxMenu;
+    const ThemeChoice choice = LoadThemeChoice();
+    theme->AppendRadioItem(idTrayThemeAuto, "Match Windows")->Check(choice == ThemeAuto);
+    theme->AppendRadioItem(idTrayThemeLight, "Light")->Check(choice == ThemeLight);
+    theme->AppendRadioItem(idTrayThemeDark, "Dark")->Check(choice == ThemeDark);
+    menu->AppendSubMenu(theme, "Theme");
     menu->AppendSeparator();
     menu->Append(idTrayQuit, "Quit");
     return menu;
@@ -166,6 +176,13 @@ void RpwTrayIcon::OnMenu(wxCommandEvent& event)
         break;
     case idTrayStartWithWindows:
         SetStartWithWindows(!StartsWithWindows());
+        break;
+    case idTrayThemeAuto:
+    case idTrayThemeLight:
+    case idTrayThemeDark:
+        SaveThemeChoice(event.GetId() == idTrayThemeLight ? ThemeLight :
+                        event.GetId() == idTrayThemeDark ? ThemeDark : ThemeAuto);
+        ApplySavedTheme();
         break;
     case idTrayQuit:
         m_main->Close(true);

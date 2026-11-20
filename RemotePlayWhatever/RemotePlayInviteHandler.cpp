@@ -340,7 +340,7 @@ void RemotePlayInviteHandler::CancelWaitingInvite(uint64 steamID, uint32 guestID
         m_takenLinks.erase(sent.m_unGuestID);
         ++m_rosterRevision;
 
-        std::string notice = link ? "The guest link was cancelled, so it no longer works." : "The invite was cancelled.";
+        std::string notice = link ? "Guest link cancelled." : "Invite cancelled.";
         // Nothing left to share, so don't keep the screen shared for nobody.
         if (m_guests.empty() && m_invited.empty() && m_pending.empty())
         {
@@ -373,8 +373,8 @@ void RemotePlayInviteHandler::SessionTick()
         bool desktop = m_enabledDesktopStreaming;
         EndSession();
         m_notice = desktop ?
-            "The game closed, so screen sharing stopped and everyone was disconnected." :
-            "The game closed, so the Remote Play session ended.";
+            "The game closed, so screen sharing stopped." :
+            "The game closed, so the session ended.";
     }
 }
 

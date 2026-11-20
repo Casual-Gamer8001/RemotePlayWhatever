@@ -18,6 +18,7 @@
 #include <wx/msw/registry.h>
 #endif
 #include "UiHelpers.h"
+#include "UiWidgets.h"
 
 #ifndef __WXMSW__
 #include "appicon.xpm"
@@ -304,4 +305,31 @@ bool CtrlAltKeyIsFree(int key)
     wxUnusedVar(key);
     return true;
 #endif
+}
+
+ThemeChoice LoadThemeChoice()
+{
+    wxConfigBase* config = wxConfigBase::Get();
+    const wxString value = config ? config->Read("/Options/Theme", wxString("auto")) : wxString("auto");
+    if (value == "light")
+    {
+        return ThemeLight;
+    }
+    return value == "dark" ? ThemeDark : ThemeAuto;
+}
+
+void SaveThemeChoice(ThemeChoice choice)
+{
+    wxConfigBase* config = wxConfigBase::Get();
+    if (config)
+    {
+        config->Write("/Options/Theme", wxString(choice == ThemeLight ? "light" : choice == ThemeDark ? "dark" : "auto"));
+        config->Flush();
+    }
+}
+
+void ApplySavedTheme()
+{
+    const ThemeChoice choice = LoadThemeChoice();
+    Ui::ApplyTheme(choice == ThemeDark || (choice == ThemeAuto && Ui::SystemPrefersDark()));
 }

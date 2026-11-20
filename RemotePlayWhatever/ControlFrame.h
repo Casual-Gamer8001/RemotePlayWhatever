@@ -51,6 +51,8 @@ private:
     void RefreshRows();
     // The cards are for the guests connected right now (same ones, same order).
     bool RowsMatchGuests() const;
+    // As tall as the cards need (within the screen), so there's no empty band.
+    void FitHeight();
     void OnPoll(wxTimerEvent& evt);
     void OnClose(wxCloseEvent& evt);
     void OnHotKey(wxKeyEvent& evt);
@@ -67,7 +69,9 @@ private:
     RemotePlayInviteHandler* m_handler;
     wxPanel* m_body;
     wxStaticText* m_title;
-    wxPanel* m_everyone;
+    FlatButton* m_endButton;
+    // The "Everyone" row's toggles (inside the list, lined up with the
+    // guests' toggles); null with fewer than two guests.
     FlatButton* m_everyoneToggles[3];
     wxScrolledWindow* m_container;
     wxBoxSizer* m_sizer;

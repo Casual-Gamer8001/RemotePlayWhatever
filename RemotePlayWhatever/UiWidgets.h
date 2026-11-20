@@ -3,37 +3,71 @@
 #include <vector>
 #include <wx/wx.h>
 
-// The app's look: light and flat, with rounded corners. These controls are
-// drawn by the app itself, so they look the same on every Windows version.
+// The app's look: flat, with rounded corners, light or dark (following
+// Windows unless the user picks one). These controls are drawn by the app
+// itself, so they look the same on every Windows version.
 namespace Ui
 {
-    const wxColour kWindow(255, 255, 255);
-    const wxColour kText(27, 27, 27);
-    const wxColour kTextSecondary(102, 108, 115);
-    const wxColour kTextMuted(138, 143, 150);
-    const wxColour kBorder(201, 205, 211);          // buttons, keycaps
-    const wxColour kCardBorder(227, 230, 234);
-    const wxColour kSubtle(244, 246, 248);          // rows inside a card
-    const wxColour kHover(238, 244, 251);           // a friend row under the mouse
-    const wxColour kAccent(15, 108, 189);
-    const wxColour kAccentHover(17, 94, 163);
-    const wxColour kAccentPressed(15, 84, 140);
-    const wxColour kGood(31, 157, 74);              // "ready" and "sharing" dot
-    const wxColour kGoodText(30, 107, 52);
-    const wxColour kGoodBg(233, 246, 236);
-    const wxColour kWarnText(138, 75, 0);
-    const wxColour kWarnBg(255, 244, 229);
-    const wxColour kInfoBg(238, 244, 251);
-    const wxColour kInfoBorder(206, 224, 244);
-    const wxColour kDanger(179, 38, 30);
-    const wxColour kDangerBg(253, 231, 233);
-    const wxColour kPlaying(63, 143, 42);           // "Playing <game>"
-    const wxColour kDotOnline(59, 155, 224);
-    const wxColour kDotInGame(87, 176, 58);
-    const wxColour kDotAway(227, 162, 26);
-    const wxColour kDotBusy(209, 52, 56);
-    const wxColour kFooter(250, 251, 252);
-    const wxColour kDivider(236, 238, 241);
+    // The palette. The values change with the theme (ApplyTheme), so read
+    // them when painting; windows that keep a colour (SetBackgroundColour
+    // and the like) should get it through SetColours below instead.
+    extern wxColour kWindow;            // window background
+    extern wxColour kCard;              // cards on it
+    extern wxColour kText;
+    extern wxColour kTextSecondary;
+    extern wxColour kTextMuted;
+    extern wxColour kBorder;            // buttons, keycaps, the search box
+    extern wxColour kBorderHover;
+    extern wxColour kCardBorder;
+    extern wxColour kControl;           // button face
+    extern wxColour kControlHover;
+    extern wxColour kControlPressed;
+    extern wxColour kSubtle;            // rows inside a card
+    extern wxColour kHover;             // a friend row under the mouse
+    extern wxColour kAccent;            // primary buttons, links
+    extern wxColour kAccentHover;
+    extern wxColour kAccentPressed;
+    extern wxColour kOnAccent;          // text on the accent colour
+    extern wxColour kLinkPressed;
+    extern wxColour kDisabledFill;
+    extern wxColour kDisabledBorder;
+    extern wxColour kDisabledText;
+    extern wxColour kCheckedDisabled;   // a toggle that's on but can't be clicked
+    extern wxColour kGood;              // "ready" and "sharing" dot
+    extern wxColour kGoodText;
+    extern wxColour kGoodBg;
+    extern wxColour kWarnText;
+    extern wxColour kWarnBg;
+    extern wxColour kInfoText;
+    extern wxColour kInfoBg;
+    extern wxColour kInfoBorder;
+    extern wxColour kDanger;
+    extern wxColour kDangerBg;
+    extern wxColour kDangerPressed;
+    extern wxColour kPlaying;           // "Playing <game>"
+    extern wxColour kDotOnline;
+    extern wxColour kDotInGame;
+    extern wxColour kDotAway;
+    extern wxColour kDotBusy;
+    extern wxColour kFooter;
+    extern wxColour kDivider;
+    extern wxColour kKey;               // keycap face
+
+    // Switch the palette to light or dark: windows given colours through
+    // SetColours get the new ones, and every window is repainted. On Windows
+    // the title bars, scroll bars, tooltips and menus follow too (pop-up
+    // questions can't: Windows draws those itself, always light).
+    void ApplyTheme(bool dark);
+    bool IsDark();
+    // Whether Windows is set to dark mode for apps (Settings > Personalization
+    // > Colors > "Choose your mode"; the "app mode" part of a custom mix).
+    bool SystemPrefersDark();
+    // Give a window colours from the palette (&Ui::kWindow and so on), now and
+    // again whenever the theme changes. Either may be null (left alone).
+    void SetColours(wxWindow* window, const wxColour* background, const wxColour* foreground = nullptr);
+    // Title bar, scroll bars and tooltips of one top-level window in the
+    // current theme (ApplyTheme does this for every window that exists).
+    void ThemeNativeParts(wxWindow* topLevel);
 
     // Characters of the Windows icon font (Segoe Fluent Icons / Segoe MDL2 Assets).
     const wchar_t kGlyphKeyboard = 0xE765;
@@ -47,6 +81,7 @@ namespace Ui
     const wchar_t kGlyphCheck = 0xE73E;
     const wchar_t kGlyphWarning = 0xE7BA;
     const wchar_t kGlyphInfo = 0xE946;
+    const wchar_t kGlyphSearch = 0xE721;
 
     // " · ", between parts of a line such as "Sharing · 1 guest connected".
     wxString Separator();
@@ -162,11 +197,13 @@ class Card : public wxPanel
 {
 public:
     // An invalid border colour draws no border.
-    Card(wxWindow* parent, const wxColour& fill = Ui::kWindow, const wxColour& border = Ui::kCardBorder,
+    // Colours are palette entries (&Ui::kCard...), so they follow the theme;
+    // a null border draws none.
+    Card(wxWindow* parent, const wxColour* fill = &Ui::kCard, const wxColour* border = &Ui::kCardBorder,
          int radius = 8);
 
     wxBoxSizer* Content() const { return m_content; }
-    void SetColours(const wxColour& fill, const wxColour& border);
+    void SetColours(const wxColour* fill, const wxColour* border);
     // Without a picture (invalid image) a colour gradient is used, chosen by seed.
     void SetBanner(const wxImage& picture, const wxString& title, unsigned long long seed);
     void SetBannerTitle(const wxString& title);
@@ -179,8 +216,8 @@ private:
 
     wxBoxSizer* m_content;
     wxSizerItem* m_bannerSpace;
-    wxColour m_fill;
-    wxColour m_border;
+    const wxColour* m_fill;
+    const wxColour* m_border;
     int m_radius;
     bool m_banner;
     wxImage m_picture;
@@ -188,6 +225,27 @@ private:
     unsigned long long m_seed;
     wxBitmap m_bannerCache;
     wxSize m_bannerCacheSize;
+};
+
+// A rounded search field: a magnifier, the text, and a clear button while
+// there's text (Escape clears too). The text control sends wxEVT_TEXT, which
+// reaches the search box's parents like any command event.
+class SearchBox : public wxPanel
+{
+public:
+    SearchBox(wxWindow* parent, const wxString& hint);
+
+    wxString GetValue() const;
+    void Clear();
+    wxTextCtrl* Text() const { return m_text; }
+
+private:
+    void OnPaint(wxPaintEvent& event);
+    void ShowClearButton();
+
+    wxTextCtrl* m_text;
+    FlatButton* m_clear;
+    bool m_focused;
 };
 
 // A round avatar picture (or initials) with an optional status dot.
