@@ -31,4 +31,12 @@ std::map<uint64, long> LoadGuestJoinTimes();
 // does nothing on other systems. Cheap to call repeatedly.
 void HideFromScreenCapture(bool hide);
 
+// "Start with Windows" (Windows only): a Run entry that opens the app hidden in
+// the tray when the user signs in.
+bool StartsWithWindows();
+void SetStartWithWindows(bool on);
+// If the entry points at a copy that's gone (its folder was moved), point it
+// at this one.
+void RefreshStartWithWindows();
+
 #endif // UIHELPERS_H

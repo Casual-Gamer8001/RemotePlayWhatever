@@ -8,9 +8,15 @@
 #include <wx/bitmap.h>
 #include <wx/config.h>
 #include <wx/datetime.h>
+#include <wx/filefn.h>
 #include <wx/icon.h>
 #include <wx/image.h>
+#include <wx/log.h>
+#include <wx/stdpaths.h>
 #include <wx/utils.h>
+#ifdef __WXMSW__
+#include <wx/msw/registry.h>
+#endif
 #include "UiHelpers.h"
 
 #ifndef __WXMSW__
@@ -206,5 +212,67 @@ void HideFromScreenCapture(bool hide)
     ::EnumWindows(ApplyCaptureSettingTo, 0);
 #else
     wxUnusedVar(hide);
+#endif
+}
+
+#ifdef __WXMSW__
+namespace
+{
+const char* const kRunKey = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+const char* const kRunValue = "RemotePlayWhatever";
+
+wxString StartCommand()
+{
+    return "\"" + wxStandardPaths::Get().GetExecutablePath() + "\" --minimized";
+}
+} // namespace
+#endif
+
+bool StartsWithWindows()
+{
+#ifdef __WXMSW__
+    wxLogNull quiet;
+    wxRegKey key(wxRegKey::HKCU, kRunKey);
+    return key.Exists() && key.HasValue(kRunValue);
+#else
+    return false;
+#endif
+}
+
+void SetStartWithWindows(bool on)
+{
+#ifdef __WXMSW__
+    wxLogNull quiet;
+    wxRegKey key(wxRegKey::HKCU, kRunKey);
+    if (on)
+    {
+        key.Create();
+        key.SetValue(kRunValue, StartCommand());
+    }
+    else if (key.Exists() && key.HasValue(kRunValue))
+    {
+        key.DeleteValue(kRunValue);
+    }
+#else
+    wxUnusedVar(on);
+#endif
+}
+
+void RefreshStartWithWindows()
+{
+#ifdef __WXMSW__
+    wxLogNull quiet;
+    wxRegKey key(wxRegKey::HKCU, kRunKey);
+    wxString current;
+    if (!key.Exists() || !key.HasValue(kRunValue) || !key.QueryValue(kRunValue, current))
+    {
+        return;
+    }
+    // Another copy that still exists keeps it; only a missing one is replaced.
+    const wxString exe = current.AfterFirst('"').BeforeFirst('"');
+    if (!exe.empty() && !wxFileExists(exe) && current != StartCommand())
+    {
+        key.SetValue(kRunValue, StartCommand());
+    }
 #endif
 }

@@ -1,10 +1,12 @@
 #include <wx/cmdline.h>
 #include <wx/snglinst.h>
 #include <wx/taskbar.h>
+#include <wx/time.h>
 #include <wx/utils.h>
 #include "Updater.h"
 #include "UpdateNeededDialog.h"
 #include "RemoteApp.h"
+#include "UiHelpers.h"
 #include "wxSteamStuff.h"
 #include "FriendsListFrame.h"
 #include "ControlFrame.h"
@@ -24,6 +26,8 @@ static const wxCmdLineEntryDesc cmdLineDesc[] =
     { wxCMD_LINE_OPTION, "c", "cancel",  "Cancel invite for provided SteamID64 and GuestID", wxCMD_LINE_VAL_STRING },
     { wxCMD_LINE_OPTION, nullptr, "updated-from", "process id of the copy that just updated this one",
       wxCMD_LINE_VAL_NUMBER, wxCMD_LINE_HIDDEN },
+    { wxCMD_LINE_SWITCH, nullptr, "minimized", "start hidden in the tray, waiting for Steam if it isn't running yet "
+      "(how it starts with Windows)" },
     { wxCMD_LINE_NONE }
 };
 
@@ -36,7 +40,8 @@ RemoteApp::RemoteApp():
     m_guestID(1),
     m_nonSteamID(0),
     m_inviteToCancel(-1),
-    m_updatedFrom(0)
+    m_updatedFrom(0),
+    m_startMinimized(false)
 {
 }
 
@@ -108,9 +113,37 @@ bool RemoteApp::OnInit()
 
         // The only copy running: remove what an earlier update left behind.
         AppUpdater::CleanUp();
+        RefreshStartWithWindows();
     }
 
-    if (!GClientContext()->Init())
+    bool steamReady = GClientContext()->Init();
+    // Started with Windows: Steam may still be starting or signing in, so wait
+    // for it quietly (up to 10 minutes) instead of showing an error at sign-in.
+    if (!steamReady && !m_oneshot && m_startMinimized &&
+        GClientContext()->InitError() != ClientContext::InitMethodsMissing)
+    {
+        // Meanwhile, a copy opened by hand may take over (it gets the window).
+        delete m_singleInstance;
+        m_singleInstance = nullptr;
+        const wxLongLong giveUp = wxGetLocalTimeMillis() + 10 * 60 * 1000;
+        while (!steamReady && GClientContext()->InitError() != ClientContext::InitMethodsMissing &&
+               wxGetLocalTimeMillis() < giveUp)
+        {
+            wxMilliSleep(5000);
+            steamReady = GClientContext()->Init();
+        }
+        m_singleInstance = new wxSingleInstanceChecker();
+        if (!m_singleInstance->Create("RemotePlayWhatever-" + wxGetUserId()) || m_singleInstance->IsAnotherRunning())
+        {
+            return false;
+        }
+        if (!steamReady && GClientContext()->InitError() != ClientContext::InitMethodsMissing)
+        {
+            return false;   // no Steam this time; nothing to complain about
+        }
+    }
+
+    if (!steamReady)
     {
         wxString why;
         switch (GClientContext()->InitError())
@@ -167,7 +200,6 @@ int RemoteApp::OnRun()
         m_callbackRunner.Start(200);
 
         m_friendsList = new FriendsListFrame(m_inviteHandler);
-        m_friendsList->Show(true);
 
         // Hidden until a guest connects, then it pops itself up.
         m_controlFrame = new ControlFrame(m_inviteHandler);
@@ -177,10 +209,13 @@ int RemoteApp::OnRun()
         }
 
         // Icon next to the clock; minimizing the main window hides it there.
-        if (wxTaskBarIcon::IsAvailable())
+        const bool tray = wxTaskBarIcon::IsAvailable();
+        if (tray)
         {
             m_friendsList->SetTray(new RpwTrayIcon(m_friendsList, m_controlFrame, m_inviteHandler));
         }
+        // Started with Windows: stay in the tray until the host needs it.
+        m_friendsList->Show(!(m_startMinimized && tray));
 
         if (m_updatedFrom)
         {
@@ -286,6 +321,7 @@ bool RemoteApp::OnCmdLineParsed(wxCmdLineParser &parser)
     {
         m_updatedFrom = (unsigned long)updatedFrom;
     }
+    m_startMinimized = parser.FoundSwitch("minimized") == wxCMD_SWITCH_ON;
 
     return wxApp::OnCmdLineParsed(parser);
 }

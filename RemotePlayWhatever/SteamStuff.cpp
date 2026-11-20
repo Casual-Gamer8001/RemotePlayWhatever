@@ -32,15 +32,19 @@ bool ClientContext::Init()
     // Until something more specific is known, failing means Steam isn't there.
     m_initError = InitSteamNotRunning;
 
-    if (!OpenAPI_LoadLibrary())
-    {
-        return false;
-    }
-
-    m_pSteamClient = (ISteamClient019*)SteamInternal_CreateInterface(STEAMCLIENT_INTERFACE_VERSION_019);
+    // Steam's library only needs loading once: when Steam isn't running yet
+    // (the app started with Windows), Init() is simply called again later.
     if (!m_pSteamClient)
     {
-        return false;
+        if (!OpenAPI_LoadLibrary())
+        {
+            return false;
+        }
+        m_pSteamClient = (ISteamClient019*)SteamInternal_CreateInterface(STEAMCLIENT_INTERFACE_VERSION_019);
+        if (!m_pSteamClient)
+        {
+            return false;
+        }
     }
 
     m_hPipe = m_pSteamClient->CreateSteamPipe();
@@ -53,6 +57,9 @@ bool ClientContext::Init()
     if (!m_hUser)
     {
         m_initError = InitNotSignedIn;
+        // Nobody to talk to yet; don't keep a pipe open for the next try.
+        m_pSteamClient->BReleaseSteamPipe(m_hPipe);
+        m_hPipe = 0;
         return false;
     }
 
