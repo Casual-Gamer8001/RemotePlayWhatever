@@ -62,7 +62,7 @@ void RpwTrayIcon::ShowHiddenHintOnce()
 #endif
 }
 
-void RpwTrayIcon::ShowUpdateBalloon(long build)
+void RpwTrayIcon::ShowUpdateBalloon(long build, const wxString& whatsNew)
 {
 #if defined(__WXMSW__) && wxUSE_TASKBARICON_BALLOONS
     wxConfigBase* config = wxConfigBase::Get();
@@ -72,11 +72,16 @@ void RpwTrayIcon::ShowUpdateBalloon(long build)
     }
     config->Write("/Options/UpdateNotifiedBuild", build);
     config->Flush();
-    ShowBalloon("A Remote Play Whatever update is available",
-                wxString::Format("Build %ld is ready. Click here to open Remote Play Whatever, then click Update.", build),
-                0, wxICON_INFORMATION);
+    wxString text = wxString::Format("Build %ld is ready. ", build);
+    if (!whatsNew.empty())
+    {
+        text += "New: " + whatsNew + "\n";
+    }
+    text += "Click here to open Remote Play Whatever, then click Update.";
+    ShowBalloon("A Remote Play Whatever update is available", text, 0, wxICON_INFORMATION);
 #else
     wxUnusedVar(build);
+    wxUnusedVar(whatsNew);
 #endif
 }
 

@@ -81,6 +81,10 @@ void UpdateNeededDialog::OnUpdaterChange()
     case AppUpdater::Available:
         status = wxString::Format("A newer version is available: build %ld (you have build %ld).",
                                   build, AppUpdater::CurrentBuild());
+        if (!m_updater->Notes().empty())
+        {
+            status += "\nNew: " + m_updater->NotesSummary(160);
+        }
         break;
     case AppUpdater::UpToDate:
         status = wxString::Format("You have the newest version (build %ld). A fix for this Steam version "

@@ -98,6 +98,7 @@ private:
     wxBoxSizer* m_waitingSizer;
     wxString m_waitingShown;
     wxButton* m_updateButton;
+    wxStaticText* m_updateNotes;
     AppUpdater* m_updater;
     wxString m_statusShown;
     wxString m_notice;

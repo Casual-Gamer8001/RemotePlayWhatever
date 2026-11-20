@@ -2,6 +2,7 @@
 #define UPDATER_H
 #include <functional>
 #include <wx/defs.h>
+#include <wx/arrstr.h>
 #include <wx/event.h>
 #include <wx/string.h>
 #include <wx/timer.h>
@@ -62,6 +63,12 @@ public:
     bool LastCheckWasManual() const { return m_manual; }
     // The newer build found by the last successful check, or 0.
     long AvailableBuild() const { return m_availableBuild; }
+    // What's new in it (the release's change titles, oldest first), possibly none.
+    const wxArrayString& Notes() const { return m_notes; }
+    // The notes on one line ("a; b; c"), cut to about maxChars.
+    wxString NotesSummary(size_t maxChars) const;
+    // The notes as a list, one "- note" per line.
+    wxString NotesList() const;
     bool Busy() const { return m_state == Checking || m_state == Downloading || m_state == Installing || m_state == Restarting; }
     const wxString& Error() const { return m_error; }
 
@@ -87,6 +94,7 @@ private:
     bool m_shutdown;
     wxString m_error;
     long m_availableBuild;
+    wxArrayString m_notes;
     wxString m_tag;
     wxString m_file;
     wxString m_sha256;

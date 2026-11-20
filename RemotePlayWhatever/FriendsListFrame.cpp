@@ -37,6 +37,7 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     m_endButton(nullptr),
     m_waitingSizer(nullptr),
     m_updateButton(nullptr),
+    m_updateNotes(nullptr),
     m_updater(nullptr),
     m_noticeUntil(0),
     m_copiedUntil(0),
@@ -104,6 +105,12 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     m_updateButton->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { StartUpdate(); });
     m_updateButton->Hide();
     statusSizer->Add(m_updateButton, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 10);
+    // What's new in that version, in small grey text under the button.
+    m_updateNotes = new wxStaticText(statusPanel, wxID_ANY, wxEmptyString);
+    m_updateNotes->SetFont(m_updateNotes->GetFont().Smaller());
+    m_updateNotes->SetForegroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_GRAYTEXT));
+    m_updateNotes->Hide();
+    statusSizer->Add(m_updateNotes, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, 10);
     statusPanel->SetSizer(statusSizer);
     frameSizer->Add(statusPanel, 0, wxEXPAND | wxBOTTOM, 1);
 
@@ -544,6 +551,27 @@ void FriendsListFrame::RefreshUpdateButton()
         relayout = true;
     }
     m_updateButton->Enable(!working);
+
+    // What's new: a line under the button, the whole list in its tooltip.
+    const wxString notes = build > 0 ? m_updater->NotesSummary(110) : wxString();
+    const wxString notesText = notes.empty() ? wxString() : "New: " + notes;
+    if (m_updateNotes->GetLabel() != notesText || m_updateNotes->IsShown() != !notesText.empty())
+    {
+        m_updateNotes->SetLabel(notesText);
+        m_updateNotes->Wrap(FromDIP(235));
+        m_updateNotes->Show(!notesText.empty());
+        relayout = true;
+    }
+    wxString tip = "Download the new version from GitHub and restart Remote Play Whatever with it.";
+    if (build > 0 && !m_updater->Notes().empty())
+    {
+        tip += "\n\nWhat's new:\n" + m_updater->NotesList();
+    }
+    if (m_updateButton->GetToolTipText() != tip)
+    {
+        m_updateButton->SetToolTip(tip);
+    }
+
     if (relayout)
     {
         m_updateButton->GetParent()->Layout();
@@ -564,10 +592,15 @@ void FriendsListFrame::OnUpdaterChange()
         {
             CallAfter([this]()
             {
+                wxString question = wxString::Format("Build %ld is available (you have build %ld).",
+                                                     m_updater->AvailableBuild(), AppUpdater::CurrentBuild());
+                if (!m_updater->Notes().empty())
+                {
+                    question += "\n\nWhat's new:\n" + m_updater->NotesList();
+                }
+                question += "\n\nUpdate now? Remote Play Whatever restarts afterwards.";
                 int answer = wxMessageBox(
-                    wxString::Format("Build %ld is available (you have build %ld).\n\n"
-                                     "Update now? Remote Play Whatever restarts afterwards.",
-                                     m_updater->AvailableBuild(), AppUpdater::CurrentBuild()),
+                    question,
                     "Remote Play Whatever",
                     wxYES_NO | wxICON_QUESTION,
                     IsShown() ? this : nullptr
@@ -580,7 +613,7 @@ void FriendsListFrame::OnUpdaterChange()
         }
         else if (m_tray && !IsShown())
         {
-            m_tray->ShowUpdateBalloon(m_updater->AvailableBuild());
+            m_tray->ShowUpdateBalloon(m_updater->AvailableBuild(), m_updater->NotesSummary(90));
         }
         break;
     case AppUpdater::UpToDate:
