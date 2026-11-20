@@ -28,7 +28,8 @@ private:
     void OnPoll(wxTimerEvent& evt);
     void OnClose(wxCloseEvent& evt);
     void OnHotKey(wxKeyEvent& evt);
-    void RegisterHotKeys();
+    // Hold the Ctrl+Alt shortcuts only while guests are connected.
+    void SetHotKeysActive(bool on);
     void ShowHint();
     void AddToggle(wxWindow* parent, wxSizer* sizer, const wxString& label,
                    bool on, uint64 guestKey, int which);
@@ -43,8 +44,10 @@ private:
     uint32 m_lastRevision;
     size_t m_lastGuestCount;
     bool m_waitingForNames;
+    bool m_hotkeysActive;
     std::vector<int> m_hotkeys;
-    wxArrayString m_hintItems;
+    wxArrayString m_hintItems;      // this window's registered shortcuts
+    wxArrayString m_extraHints;     // ones the main window owns
 };
 
 #endif // CONTROLFRAME_H

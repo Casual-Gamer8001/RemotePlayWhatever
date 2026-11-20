@@ -27,7 +27,8 @@ ControlFrame::ControlFrame(RemotePlayInviteHandler* handler) :
     m_timer(this),
     m_lastRevision((uint32)-1),
     m_lastGuestCount(0),
-    m_waitingForNames(false)
+    m_waitingForNames(false),
+    m_hotkeysActive(false)
 {
     SetIcons(AppIcons());
 
@@ -58,7 +59,12 @@ ControlFrame::ControlFrame(RemotePlayInviteHandler* handler) :
     frameSizer->Add(endButton, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxALIGN_RIGHT, 8);
     SetSizer(frameSizer);
 
-    RegisterHotKeys();
+    // The Ctrl+Alt shortcuts are registered only while guests are connected
+    // (see OnPoll), so the combinations stay free for other apps otherwise.
+#if wxUSE_HOTKEY
+    Bind(wxEVT_HOTKEY, &ControlFrame::OnHotKey, this);
+#endif
+    ShowHint();
 
     Bind(wxEVT_TIMER, &ControlFrame::OnPoll, this);
     Bind(wxEVT_CLOSE_WINDOW, &ControlFrame::OnClose, this);
@@ -77,45 +83,69 @@ ControlFrame::~ControlFrame()
 #endif
 }
 
-void ControlFrame::RegisterHotKeys()
+void ControlFrame::SetHotKeysActive(bool on)
 {
 #if wxUSE_HOTKEY
-    struct HotKey { int id; int key; const char* what; };
-    static const HotKey keys[] =
+    if (on == m_hotkeysActive)
     {
-        { kHotKeyKeyboard,    'K', "K everyone's keyboard on/off" },
-        { kHotKeyMouse,       'M', "M everyone's mouse on/off" },
-        { kHotKeyController,  'C', "C everyone's controller on/off" },
-        { kHotKeyTakeControl, 'D', "D take all control" },
-        { kHotKeyGiveBack,    'G', "G give it back" },
-    };
-
-    // A key combo another app already owns just isn't offered.
-    for (const HotKey& k : keys)
+        return;
+    }
+    m_hotkeysActive = on;
+    m_hintItems.clear();
+    if (on)
     {
-        if (RegisterHotKey(k.id, wxMOD_CONTROL | wxMOD_ALT, k.key))
+        struct HotKey { int id; int key; const char* what; };
+        static const HotKey keys[] =
         {
-            m_hotkeys.push_back(k.id);
-            m_hintItems.Add(k.what);
+            { kHotKeyKeyboard,    'K', "K everyone's keyboard on/off" },
+            { kHotKeyMouse,       'M', "M everyone's mouse on/off" },
+            { kHotKeyController,  'C', "C everyone's controller on/off" },
+            { kHotKeyTakeControl, 'D', "D take all control" },
+            { kHotKeyGiveBack,    'G', "G give it back" },
+        };
+
+        // A combination another app already owns, or one that types a letter
+        // with AltGr on this keyboard (Ctrl+Alt is AltGr), isn't offered.
+        for (const HotKey& k : keys)
+        {
+            if (CtrlAltKeyIsFree(k.key) && RegisterHotKey(k.id, wxMOD_CONTROL | wxMOD_ALT, k.key))
+            {
+                m_hotkeys.push_back(k.id);
+                m_hintItems.Add(k.what);
+            }
         }
     }
-    Bind(wxEVT_HOTKEY, &ControlFrame::OnHotKey, this);
-#endif
+    else
+    {
+        for (size_t i = 0; i < m_hotkeys.size(); ++i)
+        {
+            UnregisterHotKey(m_hotkeys[i]);
+        }
+        m_hotkeys.clear();
+    }
     ShowHint();
+#else
+    wxUnusedVar(on);
+#endif
 }
 
 void ControlFrame::AddShortcutHint(const wxString& what)
 {
-    m_hintItems.Add(what);
+    m_extraHints.Add(what);
     ShowHint();
 }
 
 void ControlFrame::ShowHint()
 {
-    wxString hint;
-    for (size_t i = 0; i < m_hintItems.size(); ++i)
+    wxArrayString items = m_hintItems;
+    for (size_t i = 0; i < m_extraHints.size(); ++i)
     {
-        hint += (i ? ", " : "") + m_hintItems[i];
+        items.Add(m_extraHints[i]);
+    }
+    wxString hint;
+    for (size_t i = 0; i < items.size(); ++i)
+    {
+        hint += (i ? ", " : "") + items[i];
     }
     if (!hint.empty())
     {
@@ -167,6 +197,8 @@ void ControlFrame::OnClose(wxCloseEvent& evt)
 
 void ControlFrame::OnPoll(wxTimerEvent&)
 {
+    SetHotKeysActive(!m_handler->Guests().empty());
+
     bool rebuild = m_handler->RosterRevision() != m_lastRevision;
 
     // Names of guests who joined through a link arrive from Steam a moment

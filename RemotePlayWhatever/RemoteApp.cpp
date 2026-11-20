@@ -203,7 +203,7 @@ int RemoteApp::OnRun()
 
         // Hidden until a guest connects, then it pops itself up.
         m_controlFrame = new ControlFrame(m_inviteHandler);
-        if (m_friendsList->HasGuestLinkHotKey())
+        if (m_friendsList->GuestLinkHotKeyUsable())
         {
             m_controlFrame->AddShortcutHint("L copy a guest link");
         }

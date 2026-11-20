@@ -46,7 +46,9 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     m_askingGroupFallback(false),
     m_inviteQueued(false),
     m_rosterSeen(0),
+    m_guestLinkKeyUsable(false),
     m_guestLinkHotKey(false),
+    m_guestLinkKeyRetryAt(0),
     m_hotKeyLinkSince(0),
     m_remoteInviteResultCb(this, &FriendsListFrame::OnRemotePlayInviteResult),
     m_personaStateCb(this, &FriendsListFrame::OnPersonaStateChange)
@@ -61,7 +63,9 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
 
 #if wxUSE_HOTKEY
     // Ctrl+Alt+L copies a guest link without leaving the game (OnGuestLinkHotKey).
-    m_guestLinkHotKey = RegisterHotKey(kHotKeyGuestLink, wxMOD_CONTROL | wxMOD_ALT, 'L');
+    // It's only taken while a game runs or a session is on (UpdateGuestLinkHotKey),
+    // and not at all where AltGr+L types a letter (Polish "ł", for example).
+    m_guestLinkKeyUsable = CtrlAltKeyIsFree('L');
     Bind(wxEVT_HOTKEY, [this](wxKeyEvent& event)
     {
         if (event.GetId() == kHotKeyGuestLink)
@@ -119,7 +123,7 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     m_friendsListSizer = new wxBoxSizer( wxVERTICAL );
 
     BtnPanel* guestBtn = new BtnPanel(m_friendsListContainer, rpwID_INVITE_GUEST, "Create guest invite link");
-    if (m_guestLinkHotKey)
+    if (m_guestLinkKeyUsable)
     {
         guestBtn->SetToolTip("A link anyone can use to join. While you're in the game, Ctrl+Alt+L copies one too.");
     }
@@ -666,6 +670,7 @@ void FriendsListFrame::OnUpdaterChange()
 void FriendsListFrame::OnTick(wxTimerEvent&)
 {
     UpdateStatus();
+    UpdateGuestLinkHotKey();
 
     // A friend who joins a session moves up to "Played with recently".
     if (m_pRemoteInvite->RosterRevision() != m_rosterSeen)
@@ -1074,6 +1079,30 @@ bool FriendsListFrame::HotKeyLinkPending() const
     return m_hotKeyLinkSince != 0 && wxGetLocalTimeMillis() - m_hotKeyLinkSince < 20000;
 }
 
+void FriendsListFrame::UpdateGuestLinkHotKey()
+{
+#if wxUSE_HOTKEY
+    // A global shortcut is only held while it's useful, so Ctrl+Alt+L stays
+    // free for other apps the rest of the time.
+    const bool wanted = m_guestLinkKeyUsable &&
+                        (m_pRemoteInvite->IsSessionActive() || GetRunningGameID().IsValid());
+    if (wanted && !m_guestLinkHotKey && wxGetLocalTimeMillis() >= m_guestLinkKeyRetryAt)
+    {
+        m_guestLinkHotKey = RegisterHotKey(kHotKeyGuestLink, wxMOD_CONTROL | wxMOD_ALT, 'L');
+        if (!m_guestLinkHotKey)
+        {
+            // Another app has it; try again in a while.
+            m_guestLinkKeyRetryAt = wxGetLocalTimeMillis() + 30000;
+        }
+    }
+    else if (!wanted && m_guestLinkHotKey)
+    {
+        UnregisterHotKey(kHotKeyGuestLink);
+        m_guestLinkHotKey = false;
+    }
+#endif
+}
+
 void FriendsListFrame::Announce(const wxString& title, const wxString& text, bool ok)
 {
 #ifdef __WXMSW__
@@ -1088,19 +1117,12 @@ void FriendsListFrame::Announce(const wxString& title, const wxString& text, boo
 
 void FriendsListFrame::OnGuestLinkHotKey()
 {
-    // This session's guest link, if nobody has used it yet: copy it again.
+    // A guest link from this session that nobody has used yet: copy it again.
     if (!m_pRemoteInvite->GuestLink().empty())
     {
-        const std::vector<RemotePlayInviteHandler::WaitingInvite> waiting = m_pRemoteInvite->WaitingInvites();
-        for (size_t i = 0; i < waiting.size(); ++i)
-        {
-            if (!waiting[i].steamID)
-            {
-                CopyGuestLink();
-                Announce("Guest link copied", "Paste it to whoever you want to play with. Anyone with the link can join.");
-                return;
-            }
-        }
+        CopyGuestLink();
+        Announce("Guest link copied", "Paste it to whoever you want to play with. Anyone with the link can join.");
+        return;
     }
     if (HotKeyLinkPending())
     {
