@@ -20,12 +20,16 @@ public:
     // main window is closed.
     virtual bool ShouldPreventAppExit() const override { return false; }
 
+    // List another in-game shortcut (one the main window owns) in the hint.
+    void AddShortcutHint(const wxString& what);
+
 private:
     void Rebuild();
     void OnPoll(wxTimerEvent& evt);
     void OnClose(wxCloseEvent& evt);
     void OnHotKey(wxKeyEvent& evt);
     void RegisterHotKeys();
+    void ShowHint();
     void AddToggle(wxWindow* parent, wxSizer* sizer, const wxString& label,
                    bool on, uint64 guestKey, int which);
     // Name shown for a guest; sets placeholder when Steam doesn't know it yet.
@@ -40,6 +44,7 @@ private:
     size_t m_lastGuestCount;
     bool m_waitingForNames;
     std::vector<int> m_hotkeys;
+    wxArrayString m_hintItems;
 };
 
 #endif // CONTROLFRAME_H

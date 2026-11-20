@@ -79,14 +79,13 @@ ControlFrame::~ControlFrame()
 
 void ControlFrame::RegisterHotKeys()
 {
-    wxString hint;
 #if wxUSE_HOTKEY
     struct HotKey { int id; int key; const char* what; };
     static const HotKey keys[] =
     {
-        { kHotKeyKeyboard,    'K', "K keyboard on/off" },
-        { kHotKeyMouse,       'M', "M mouse on/off" },
-        { kHotKeyController,  'C', "C controller on/off" },
+        { kHotKeyKeyboard,    'K', "K everyone's keyboard on/off" },
+        { kHotKeyMouse,       'M', "M everyone's mouse on/off" },
+        { kHotKeyController,  'C', "C everyone's controller on/off" },
         { kHotKeyTakeControl, 'D', "D take all control" },
         { kHotKeyGiveBack,    'G', "G give it back" },
     };
@@ -97,20 +96,35 @@ void ControlFrame::RegisterHotKeys()
         if (RegisterHotKey(k.id, wxMOD_CONTROL | wxMOD_ALT, k.key))
         {
             m_hotkeys.push_back(k.id);
-            hint += hint.empty() ? "" : ", ";
-            hint += k.what;
+            m_hintItems.Add(k.what);
         }
     }
     Bind(wxEVT_HOTKEY, &ControlFrame::OnHotKey, this);
+#endif
+    ShowHint();
+}
 
+void ControlFrame::AddShortcutHint(const wxString& what)
+{
+    m_hintItems.Add(what);
+    ShowHint();
+}
+
+void ControlFrame::ShowHint()
+{
+    wxString hint;
+    for (size_t i = 0; i < m_hintItems.size(); ++i)
+    {
+        hint += (i ? ", " : "") + m_hintItems[i];
+    }
     if (!hint.empty())
     {
-        hint = "Shortcuts for everyone that work while you're in the game (Ctrl+Alt + key): " + hint + ".";
+        hint = "Shortcuts that work while you're in the game (Ctrl+Alt + key): " + hint + ".";
     }
-#endif
     m_hotkeyHint->SetLabel(hint);
     m_hotkeyHint->Wrap(FromDIP(490));
     m_hotkeyHint->Show(!hint.empty());
+    Layout();
 }
 
 void ControlFrame::OnHotKey(wxKeyEvent& evt)

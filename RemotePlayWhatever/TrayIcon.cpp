@@ -79,13 +79,25 @@ void RpwTrayIcon::ShowUpdateBalloon(long build)
 #endif
 }
 
+void RpwTrayIcon::Notify(const wxString& title, const wxString& text, bool warning)
+{
+#if defined(__WXMSW__) && wxUSE_TASKBARICON_BALLOONS
+    ShowBalloon(title, text, 0, warning ? wxICON_WARNING : wxICON_INFORMATION);
+#else
+    wxUnusedVar(title);
+    wxUnusedVar(text);
+    wxUnusedVar(warning);
+#endif
+}
+
 wxMenu* RpwTrayIcon::CreatePopupMenu()
 {
     wxMenu* menu = new wxMenu;
     menu->Append(idTrayOpen, "Open Remote Play Whatever");
     menu->Append(idTrayControls, "Show guest controls");
     menu->AppendSeparator();
-    menu->Append(idTrayCopyLink, "Copy guest link")->Enable(!m_handler->GuestLink().empty());
+    menu->Append(idTrayCopyLink, m_main->HasGuestLinkHotKey() ? "Copy guest link\tCtrl+Alt+L" : "Copy guest link")
+        ->Enable(!m_handler->GuestLink().empty());
     menu->Append(idTrayEndSession, "End session")->Enable(m_handler->IsSessionActive());
     menu->AppendSeparator();
     if (m_main->UpdatesSupported())

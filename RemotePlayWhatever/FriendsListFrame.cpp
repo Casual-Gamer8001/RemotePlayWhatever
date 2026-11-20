@@ -18,6 +18,8 @@
 
 static const wxColour kReadyGreen(30, 130, 50);
 static const wxColour kNoticeOrange(190, 100, 0);
+// Hotkey id for Ctrl+Alt+L (the control window's ids start at 0xB001).
+static const int kHotKeyGuestLink = 0xB010;
 
 FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     wxFrame(NULL, wxID_ANY, _("Remote Play Whatever"), wxPoint(50, 50), wxSize(275, 650)),
@@ -43,6 +45,8 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     m_askingGroupFallback(false),
     m_inviteQueued(false),
     m_rosterSeen(0),
+    m_guestLinkHotKey(false),
+    m_hotKeyLinkSince(0),
     m_remoteInviteResultCb(this, &FriendsListFrame::OnRemotePlayInviteResult),
     m_personaStateCb(this, &FriendsListFrame::OnPersonaStateChange)
 {
@@ -53,6 +57,22 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     SetIcons(AppIcons());
 
     m_pRemoteInvite = handler;
+
+#if wxUSE_HOTKEY
+    // Ctrl+Alt+L copies a guest link without leaving the game (OnGuestLinkHotKey).
+    m_guestLinkHotKey = RegisterHotKey(kHotKeyGuestLink, wxMOD_CONTROL | wxMOD_ALT, 'L');
+    Bind(wxEVT_HOTKEY, [this](wxKeyEvent& event)
+    {
+        if (event.GetId() == kHotKeyGuestLink)
+        {
+            OnGuestLinkHotKey();
+        }
+        else
+        {
+            event.Skip();
+        }
+    });
+#endif
 
     wxBoxSizer* frameSizer = new wxBoxSizer( wxVERTICAL );
 
@@ -92,6 +112,10 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     m_friendsListSizer = new wxBoxSizer( wxVERTICAL );
 
     BtnPanel* guestBtn = new BtnPanel(m_friendsListContainer, rpwID_INVITE_GUEST, "Create guest invite link");
+    if (m_guestLinkHotKey)
+    {
+        guestBtn->SetToolTip("A link anyone can use to join. While you're in the game, Ctrl+Alt+L copies one too.");
+    }
     m_friendsListSizer->Add(guestBtn, 0, wxALL | wxEXPAND, 0);
 
     wxStaticText* flLabel = new wxStaticText(m_friendsListContainer, wxID_ANY, "or invite a friend", wxDefaultPosition, wxDefaultSize, wxALIGN_CENTER_HORIZONTAL);
@@ -164,6 +188,13 @@ void FriendsListFrame::OnClose(wxCloseEvent& event)
     // and destroys its own hidden window.
     m_tick.Stop();
     m_updater->Shutdown();
+#if wxUSE_HOTKEY
+    if (m_guestLinkHotKey)
+    {
+        UnregisterHotKey(kHotKeyGuestLink);
+        m_guestLinkHotKey = false;
+    }
+#endif
     std::vector<wxWindow*> controls;
     for (wxWindowList::compatibility_iterator node = wxTopLevelWindows.GetFirst(); node; node = node->GetNext())
     {
@@ -826,8 +857,21 @@ void FriendsListFrame::ApplyFilter()
 
 void FriendsListFrame::OnRemotePlayInviteResult(RemotePlayInviteResult_t* inviteResultCb)
 {
+    // A guest link asked for with Ctrl+Alt+L: answer with a tray notification,
+    // not a message box that would pull the host out of the game.
+    const bool viaHotKey = HotKeyLinkPending() && !inviteResultCb->m_player.m_playerID.IsValid();
+    if (viaHotKey)
+    {
+        m_hotKeyLinkSince = 0;
+    }
+
     if (inviteResultCb->m_eResult != k_ERemoteClientLaunchResultOK)
     {
+        if (viaHotKey)
+        {
+            Announce("Couldn't create a guest link", DescribeLaunchResult(inviteResultCb->m_eResult), false);
+            return;
+        }
         wxMessageBox(
             "Couldn't start Remote Play. " + DescribeLaunchResult(inviteResultCb->m_eResult) +
             wxString::Format("\n\n(Steam result %d)", (int)inviteResultCb->m_eResult),
@@ -858,6 +902,14 @@ void FriendsListFrame::OnRemotePlayInviteResult(RemotePlayInviteResult_t* invite
                 copied = wxTheClipboard->SetData(new wxTextDataObject(link));
                 wxTheClipboard->Flush();
                 wxTheClipboard->Close();
+            }
+            if (viaHotKey)
+            {
+                Announce(copied ? "Guest link copied" : "Guest link created",
+                         copied ? wxString("Paste it to whoever you want to play with. Anyone with the link can join.")
+                                : "Copy it from Remote Play Whatever's window or tray menu: " + link,
+                         copied);
+                return;
             }
             wxMessageBox(
                 (copied ? "Guest invite link copied to the clipboard:\n\n" : "Guest invite link:\n\n") + link +
@@ -978,5 +1030,66 @@ void FriendsListFrame::OnGuestPanelClick(wxCommandEvent &event)
         m_pRemoteInvite->SendInvite(CSteamID(0, k_EUniversePublic, k_EAccountTypeIndividual));
     }
     delete dlg;
+}
+
+bool FriendsListFrame::HotKeyLinkPending() const
+{
+    // Steam answers within seconds; after 20 s, stop waiting for it.
+    return m_hotKeyLinkSince != 0 && wxGetLocalTimeMillis() - m_hotKeyLinkSince < 20000;
+}
+
+void FriendsListFrame::Announce(const wxString& title, const wxString& text, bool ok)
+{
+#ifdef __WXMSW__
+    // A notification may not show over a fullscreen game, but the sound does.
+    ::MessageBeep(ok ? MB_OK : MB_ICONEXCLAMATION);
+#endif
+    if (m_tray)
+    {
+        m_tray->Notify(title, text, !ok);
+    }
+}
+
+void FriendsListFrame::OnGuestLinkHotKey()
+{
+    // This session's guest link, if nobody has used it yet: copy it again.
+    if (!m_pRemoteInvite->GuestLink().empty())
+    {
+        const std::vector<RemotePlayInviteHandler::WaitingInvite> waiting = m_pRemoteInvite->WaitingInvites();
+        for (size_t i = 0; i < waiting.size(); ++i)
+        {
+            if (!waiting[i].steamID)
+            {
+                CopyGuestLink();
+                Announce("Guest link copied", "Paste it to whoever you want to play with. Anyone with the link can join.");
+                return;
+            }
+        }
+    }
+    if (HotKeyLinkPending())
+    {
+        return;     // one is on its way
+    }
+
+    CGameID game = GetRunningGameID();
+    if (!GClientContext()->SteamUser()->BLoggedOn() || !game.IsValid())
+    {
+        Announce("No game running", "Start the game through Steam, then press Ctrl+Alt+L again.", false);
+        return;
+    }
+    // A non-Steam game shares the whole screen; that needs a yes in the main
+    // window first (after that, the shortcut works for it too).
+    const bool desktop = !(game.IsSteamApp() && game.AppID() != m_pRemoteInvite->GetNonSteamAppID());
+    if (desktop && !m_pRemoteInvite->IsSharingDesktop())
+    {
+        Announce("Create this link in Remote Play Whatever",
+                 "This isn't a Steam game, so guests would see your whole screen. Create the first link from the main window.",
+                 false);
+        return;
+    }
+
+    m_hotKeyLinkSince = wxGetLocalTimeMillis();
+    m_notice.clear();
+    m_pRemoteInvite->SendInvite(CSteamID(0, k_EUniversePublic, k_EAccountTypeIndividual));
 }
 
