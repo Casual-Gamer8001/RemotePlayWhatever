@@ -6,25 +6,27 @@
 > - non-Steam games (emulators and other shortcuts) are shown by name, and sharing stops by itself when the game closes, so guests don't keep seeing your desktop
 > - a new look: the game you're sharing at the top of the main window with its picture from your Steam library, what guests will see, the guest link and session buttons, and short messages in the window (invite sent, link copied) instead of pop-ups; round avatars with status dots and an Invite button for each friend (clicking a friend's row no longer sends an invite by accident); and a guest controls window with a card per guest, keyboard / mouse / controller toggles with icons, and how long each guest has been there
 > - dark or light to match Windows (it switches when Windows does; Options > Theme, also in the tray menu, can fix it to Light or Dark), two columns when the window is wide (the game card beside the friends list), and sharp text on high-DPI screens (e.g. laptops at 150 %)
-> - a menu bar at the top left like other Windows apps (dark in dark mode too): File (hide to tray, exit), Session (guest link, its QR code, guest controls, End session), Options (theme, offline friends, sounds, Start with Windows, automatic update checks and installs) and Help (check for updates, release notes, the project page, About)
+> - a menu bar at the top left like other Windows apps (dark in dark mode too): File (hide to tray, exit), Session (guest link, its QR code, guest controls, End session), Options (theme, offline friends, sounds and notifications when guests join or leave, Start with Windows, asking again before sharing the whole screen, automatic update checks and installs) and Help (check for updates, release notes, the project page, About)
 > - the main window and the guest controls window open where you left them, at the same size (the main window maximized if it was), unless that place is no longer on a screen
 > - a guest link can be shown as a QR code (QR code next to the waiting link, or Session > Show guest link as a QR code), for someone in the room to scan with their phone; it closes by itself once the link has been used. QR codes are made with Project Nayuki's [QR Code generator library](https://www.nayuki.io/page/qr-code-generator-library) (MIT License)
 > - End session (disconnect everyone, cancel unused invites and guest links, stop sharing), Copy guest link, and a Remove button for each guest
 > - clickable guest links (Steam leaves out `https://`)
 > - a separate control row for every guest, including Steam Link guests who join without a Steam account
 > - a fresh Remote Play group check before every invite, and a question instead of a silent watch-only fallback when Steam won't create one
-> - the game that will be shared, and who's connected, shown at the top of the main window; for a non-Steam game (which shares your whole screen) it asks once per session
+> - the game that will be shared, and who's connected, shown at the top of the main window; for a non-Steam game (which shares your whole screen) it asks once per session, or never again for that game if you tick "Don't ask again" (Options > Ask again before sharing the whole screen undoes it)
+> - with no game running, the games you played lately (Steam games and non-Steam shortcuts) are listed in the main window with a Play button each, which starts the game through Steam
+> - while you're sharing, the main window says for how long ("Sharing · 2 guests connected · 25 min"), and "<name> joined." / "<name> left." when guests come and go (by the clock too when you're in the game; turn it off under Options or in the tray menu)
 > - an "Everyone" row and in-game hotkeys: Ctrl+Alt+K / M / C turn keyboard / mouse / controller on or off for everyone, Ctrl+Alt+D takes all control, Ctrl+Alt+G gives it back
 > - a friend search box (it also finds what friends are playing), and one window at a time
 > - friends who appear offline are listed too (greyed out, in an Offline group you can fold away), so you can still invite someone who's invisible; the invite link reaches them in Steam chat
 > - what each online friend is doing, under their name: "Playing <game>" (named by Steam even if you don't have the game), Online, Away or Busy
-> - "Played with recently" at the top of the friends list: up to 8 friends who've joined your sessions, most recent first
+> - "Played with recently" at the top of the friends list: up to 8 friends who've joined your sessions, most recent first; and above it, friends you pinned (right-click a friend > Pin to the top), even when they appear offline
 > - invites nobody has used yet are listed in the main window with a Cancel button each, so one friend's invite or a guest link can be withdrawn without ending the session
 > - Ctrl+Alt+L copies a guest link from inside a game (it creates one if needed, for Steam games), with a notification instead of a window popping up
 > - while your whole screen is shared (non-Steam games), Remote Play Whatever's own windows, including the guest link, are left out of the picture guests see (Windows 10 2004 or later)
 > - a tray icon: minimizing hides the window by the clock, its right-click menu has the session buttons and the options, a green dot on it means a Remote Play session is on, and opening the app again brings the window back. "Start with Windows" (there or under Options) opens it in the tray when you sign in (it waits for Steam to start)
 > - short sounds when a guest joins or leaves (turn them off under Options or in the tray menu), and what each friend may use (keyboard, mouse, controller) is remembered for the next time they join
-> - updates itself: it checks this fork's releases when it starts and every few hours. An update found when it starts is installed straight away (it restarts in a few seconds, never during a Remote Play session; turn this off with Options > Install updates on launch); otherwise an "Update" button downloads it, checks it and restarts the app, with a line about what's new. Help > Check for updates (also in the tray menu) checks right away, and Options has a switch to turn the automatic checks off. If a Steam update ever stops it from starting, the message it shows looks for a fixed version and offers to install it
+> - updates itself: it checks this fork's releases when it starts and every few hours. An update found when it starts is installed straight away (it restarts in a few seconds, never during a Remote Play session; turn this off with Options > Install updates on launch); otherwise an "Update" button downloads it, checks it and restarts the app, with a line about what's new. Help > Check for updates (also in the tray menu) checks right away, and Options has a switch to turn the automatic checks off. If an update doesn't start properly, the next start goes back to the version you had and says so. If a Steam update ever stops it from starting, the message it shows looks for a fixed version and offers to install it
 > - fixes: Steam calls are checked before they're made (so a Steam update can't make it call the wrong function; the one call Steam gives no name for is guarded too), clearer startup errors, and the control window no longer steals focus from a fullscreen game or keeps the app running after the main window is closed
 
 # RemotePlayWhatever
@@ -54,7 +56,7 @@ Download the latest [release](https://github.com/Casual-Gamer8001/RemotePlayWhat
 ## Usage
 1. Ensure the Steam client is running.
 2. Launch RemotePlayWhatever.
-3. Launch the game you want to play *through the Steam client*.
+3. Launch the game you want to play *through the Steam client* (or click **Play** next to it under Recent games in RemotePlayWhatever).
 4. Alt+Tab (or switch) back to the RemotePlayWhatever window.
 5. Invite your friend(s):
     - **Direct Invite:** Click **Invite** next to a friend. They will receive the invite link via a Steam Chat message.
