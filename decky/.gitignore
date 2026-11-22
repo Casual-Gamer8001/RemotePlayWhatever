@@ -1,0 +1,8 @@
+node_modules/
+dist/
+__pycache__/
+# test_main.py's scratch folder
+.test-work/
+# A plugin zip built locally (the steps of the decky job in .github/workflows/build.yml)
+out/
+*.zip

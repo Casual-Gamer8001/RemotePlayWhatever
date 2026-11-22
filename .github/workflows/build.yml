@@ -1,14 +1,14 @@
 name: Build
 
 # Every push builds a 64-bit Windows package, a Linux AppImage (also for the
-# Steam Deck) and a Mac app. Pushes to master publish them as the latest
-# release; pushes to other branches replace that branch's test (pre-release)
-# build, tagged branch-<name>. The Windows job creates the release, with an
-# update.txt (build number, tag, package name, SHA-256 and up to ten "note="
-# lines with the commit titles since the previous release, oldest first),
-# which the Windows app reads to offer updates. The Linux and Mac jobs then
-# add their downloads to that release, so the Windows build is published even
-# if one of them fails.
+# Steam Deck), a Mac app and the Steam Deck's Decky Loader plugin. Pushes to
+# master publish them as the latest release; pushes to other branches replace
+# that branch's test (pre-release) build, tagged branch-<name>. The Windows
+# job creates the release, with an update.txt (build number, tag, package
+# name, SHA-256 and up to ten "note=" lines with the commit titles since the
+# previous release, oldest first), which the Windows app reads to offer
+# updates. The Linux, Mac and Decky jobs then add their downloads to that
+# release, so the Windows build is published even if one of them fails.
 
 on:
   push:
@@ -27,6 +27,7 @@ env:
   PACKAGE: RemotePlayWhatever-win64.zip
   LINUX_PACKAGE: RemotePlayWhatever-linux-x86_64.AppImage
   MAC_PACKAGE: RemotePlayWhatever-macos.zip
+  DECKY_PACKAGE: RemotePlayWhatever-decky.zip
 
 jobs:
   windows:
@@ -274,6 +275,33 @@ jobs:
           cat smoke-linux.log
           exit $result
 
+      # What the Steam Deck plugin runs: --serve needs no display, prints only
+      # protocol lines on stdout, and with no Steam here says so and exits.
+      # The screen share's placeholder exits at once without a valid owner.
+      - name: Smoke test --serve and --share-screen (no display, no Steam)
+        run: |
+          result=0
+          status=0
+          printf 'status\nquit\n' | env -u DISPLAY -u WAYLAND_DISPLAY APPIMAGE_EXTRACT_AND_RUN=1 \
+            timeout 60 ./"$LINUX_PACKAGE" --serve > serve-linux.out 2> serve-linux.err || status=$?
+          echo "== --serve stdout (exit status $status) =="
+          cat serve-linux.out
+          echo "== --serve stderr =="
+          cat serve-linux.err
+          if [ "$status" = 124 ]; then echo "::error::--serve didn't exit within 60 s"; result=1; fi
+          if grep -qv '^{"event":' serve-linux.out; then echo "::error::--serve printed something that isn't a protocol line"; result=1; fi
+          if ! grep -q '^{"event":"error","error":"steam-not-running"' serve-linux.out; then
+            echo "::error::--serve didn't report that Steam isn't running"; result=1
+          fi
+          for case in "bogus 2" "4194300-1 0"; do
+            set -- $case
+            status=0
+            env -u DISPLAY -u WAYLAND_DISPLAY APPIMAGE_EXTRACT_AND_RUN=1 timeout 20 ./"$LINUX_PACKAGE" --share-screen "$1" || status=$?
+            echo "--share-screen $1: exit status $status (expected $2)"
+            if [ "$status" != "$2" ]; then echo "::error::--share-screen $1 exited with $status, not $2"; result=1; fi
+          done
+          exit $result
+
       # Arch Linux, like SteamOS, but without GTK, icon themes or a MIME
       # database: shows that what the AppImage takes from the system is only
       # what every Linux desktop has (X11 and the font libraries: fontconfig,
@@ -452,3 +480,56 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.windows.outputs.tag }}
         run: gh release upload "$TAG" "$MAC_PACKAGE" --clobber --repo "$GITHUB_REPOSITORY"
+
+  decky:
+    # The Decky Loader plugin for the Steam Deck's Game Mode: a Quick Access
+    # Menu panel that runs the AppImage in the background (--serve), so it's
+    # never a second non-Steam game. It waits for windows only for the release.
+    needs: windows
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: decky
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: decky/package-lock.json
+
+      # The Python Decky Loader runs plugins with.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Test the backend
+        run: python test_main.py
+
+      - name: Package
+        run: |
+          rm -rf out "$DECKY_PACKAGE"
+          mkdir -p out/RemotePlayWhatever/dist
+          cp plugin.json package.json main.py LICENSE README.md out/RemotePlayWhatever/
+          cp dist/index.js out/RemotePlayWhatever/dist/
+          (cd out && zip -r -X "../$DECKY_PACKAGE" RemotePlayWhatever)
+          unzip -l "$DECKY_PACKAGE"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RemotePlayWhatever-decky
+          path: decky/${{ env.DECKY_PACKAGE }}
+
+      - name: Add to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.windows.outputs.tag }}
+        run: gh release upload "$TAG" "$DECKY_PACKAGE" --clobber --repo "$GITHUB_REPOSITORY"

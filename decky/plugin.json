@@ -1,0 +1,11 @@
+{
+  "name": "Remote Play Whatever",
+  "author": "Casual-Gamer8001 (Remote Play Whatever fork)",
+  "flags": [],
+  "api_version": 1,
+  "publish": {
+    "tags": ["remote-play", "multiplayer", "non-steam", "emulation"],
+    "description": "Share any game, including non-Steam games and emulators, with Steam Remote Play Together from the Quick Access Menu: guest links with QR codes, friend invites and guest controls, without the Game Mode freeze.",
+    "image": "https://raw.githubusercontent.com/Casual-Gamer8001/RemotePlayWhatever/master/assets/rpw_screen.png"
+  }
+}
