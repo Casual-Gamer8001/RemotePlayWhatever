@@ -22,6 +22,12 @@ endif()
 set(OSW_ROOT "${CMAKE_CURRENT_LIST_DIR}/../open-steamworks")
 set(OSW_INCLUDE_PATH "${OSW_ROOT}/OpenSteamworks")
 set(OSW_LIB_ROOT "${OSW_ROOT}/OpenSteamAPI")
+# open-steamworks' projects pin the VS 2019 toolset (v142). Build them with the
+# MSVC toolset configuring this project, so Visual Studio 2022 and newer work
+# without the VS 2019 build tools (from the Rammy-3 fork).
+if(MSVC AND MSVC_TOOLSET_VERSION)
+    set(OSW_MSBUILD_TOOLSET "/p:PlatformToolset=v${MSVC_TOOLSET_VERSION}")
+endif()
 if(${SYSTEM_OS} STREQUAL "Win")
     add_custom_target(OpenSteamAPI)
     if(${SYSTEM_ARCH} STREQUAL "64")
@@ -29,7 +35,7 @@ if(${SYSTEM_OS} STREQUAL "Win")
         set(OSW_DLL_PATH "${OSW_LIB_ROOT}/lib/${SYSTEM_OS}${SYSTEM_ARCH}/OpenSteamAPI64.dll")
         add_custom_command(TARGET OpenSteamAPI
             WORKING_DIRECTORY "${OSW_ROOT}"
-            COMMAND msbuild /p:Platform=x64 /p:Configuration=Release
+            COMMAND msbuild /p:Platform=x64 /p:Configuration=Release ${OSW_MSBUILD_TOOLSET}
             VERBATIM
         )
     else()
@@ -37,7 +43,7 @@ if(${SYSTEM_OS} STREQUAL "Win")
         set(OSW_DLL_PATH "${OSW_LIB_ROOT}/lib/${SYSTEM_OS}${SYSTEM_ARCH}/OpenSteamAPI.dll")
         add_custom_command(TARGET OpenSteamAPI
             WORKING_DIRECTORY "${OSW_ROOT}"
-            COMMAND msbuild /p:Platform=Win32 /p:Configuration=Release
+            COMMAND msbuild /p:Platform=Win32 /p:Configuration=Release ${OSW_MSBUILD_TOOLSET}
             VERBATIM
         )
     endif()
