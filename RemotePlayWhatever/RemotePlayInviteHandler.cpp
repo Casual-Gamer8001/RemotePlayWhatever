@@ -16,6 +16,7 @@ RemotePlayInviteHandler::RemotePlayInviteHandler() :
     m_sessionGame(0),
     m_sessionGameGoneTicks(0),
     m_rosterRevision(0),
+    m_sessionEnds(0),
     m_remoteStartCb(this, &RemotePlayInviteHandler::OnRemotePlayStart),
     m_remoteStopCb(this, &RemotePlayInviteHandler::OnRemotePlayStop),
     m_remoteInviteResultCb(this, &RemotePlayInviteHandler::OnRemotePlayInviteResult)
@@ -220,6 +221,7 @@ void RemotePlayInviteHandler::EndSession()
         rcm->SetStreamingDesktopToRemotePlayTogetherEnabled(false);
     }
 
+    ++m_sessionEnds;
     ResetSession();
 }
 

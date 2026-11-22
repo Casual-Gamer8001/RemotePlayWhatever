@@ -29,6 +29,9 @@ public:
     // in the hint at the bottom.
     void AddShortcutHint(char key, const wxString& what);
 
+    // Name shown for a guest; sets placeholder when Steam doesn't know it yet.
+    static wxString GuestName(const ConnectedGuest& g, bool& placeholder);
+
 private:
     struct GuestRow
     {
@@ -64,8 +67,6 @@ private:
     // for everyone (guestKey 0).
     FlatButton* AddToggle(wxWindow* parent, wxSizer* sizer, int which, uint64 guestKey);
     void Toggle(uint64 guestKey, int which);
-    // Name shown for a guest; sets placeholder when Steam doesn't know it yet.
-    wxString GuestName(const ConnectedGuest& g, bool& placeholder);
 
     RemotePlayInviteHandler* m_handler;
     wxPanel* m_body;

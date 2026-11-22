@@ -116,6 +116,9 @@ public:
     // Bumped whenever the roster or anyone's control changes, so the UI can
     // tell when to rebuild itself.
     uint32 RosterRevision() const { return m_rosterRevision; }
+    // Bumped whenever the session is ended on purpose (End session, the game
+    // closed, a failed invite), as opposed to guests leaving by themselves.
+    uint32 SessionEnds() const { return m_sessionEnds; }
 
 private:
     void ApplyGuest(const ConnectedGuest& g);
@@ -147,6 +150,7 @@ private:
 
     std::vector<ConnectedGuest> m_guests;
     uint32 m_rosterRevision;
+    uint32 m_sessionEnds;
 
     void ResetSession();
 

@@ -3,7 +3,9 @@
 #include <wx/config.h>
 #include <wx/time.h>
 #include <algorithm>
+#include <cmath>
 #include <cstring>
+#include <iterator>
 #include <vector>
 #ifdef __WXMSW__
 #include <wx/msw/wrapwin.h>
@@ -39,12 +41,14 @@ enum
     idMenuThemeDark,
     idMenuShowOffline,
     idMenuSounds,
+    idMenuGuestNotices,
     idMenuStartWithWindows,
     idMenuAutoUpdates,
     idMenuInstallOnLaunch,
     idMenuCheckUpdates,
     idMenuReleaseNotes,
     idMenuProjectPage,
+    idMenuPinFriend,
 };
 
 static CSteamID GuestLinkInvitee()
@@ -87,21 +91,32 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     m_noticeCard(nullptr),
     m_noticeIcon(nullptr),
     m_noticeText(nullptr),
+    m_gamesSizer(nullptr),
+    m_gamesCheckedAt(0),
+    m_startingGame(0),
+    m_startingSince(0),
     m_search(nullptr),
     m_friendsListContainer(nullptr),
     m_friendsListSizer(nullptr),
+    m_pinnedHeader(nullptr),
     m_recentHeader(nullptr),
     m_onlineHeader(nullptr),
     m_offlineHeader(nullptr),
+    m_pinnedLabel(nullptr),
     m_recentLabel(nullptr),
     m_onlineLabel(nullptr),
     m_offlineLabel(nullptr),
     m_offlineToggle(nullptr),
     m_noMatches(nullptr),
+    m_pinnedSizer(nullptr),
     m_recentSizer(nullptr),
     m_onlineSizer(nullptr),
     m_offlineSizer(nullptr),
     m_showOffline(false),
+    m_pinned(LoadPinnedFriends()),
+    m_guestsSeen(false),
+    m_sessionEndsSeen(0),
+    m_sessionSince(0),
     m_tray(nullptr),
     m_updater(nullptr),
     m_place(nullptr),
@@ -264,6 +279,7 @@ void FriendsListFrame::BuildMenuBar()
     options->AppendSubMenu(theme, "&Theme");
     options->AppendCheckItem(idMenuShowOffline, "Show &offline friends");
     options->AppendCheckItem(idMenuSounds, "&Sounds when guests join or leave");
+    options->AppendCheckItem(idMenuGuestNotices, "&Notifications when guests join or leave");
 #ifdef __WXMSW__
     options->AppendCheckItem(idMenuStartWithWindows, "Start with &Windows");
 #endif
@@ -330,6 +346,11 @@ void FriendsListFrame::BuildMenuBar()
         SetSoundsEnabled(!SoundsEnabled());
         RefreshMenus();
     }, idMenuSounds);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&)
+    {
+        SetGuestNoticesEnabled(!GuestNoticesEnabled());
+        RefreshMenus();
+    }, idMenuGuestNotices);
 #ifdef __WXMSW__
     Bind(wxEVT_MENU, [this](wxCommandEvent&)
     {
@@ -383,6 +404,7 @@ void FriendsListFrame::RefreshMenus()
     bar->Check(theme == ThemeLight ? idMenuThemeLight : theme == ThemeDark ? idMenuThemeDark : idMenuThemeAuto, true);
     bar->Check(idMenuShowOffline, m_showOffline);
     bar->Check(idMenuSounds, SoundsEnabled());
+    bar->Check(idMenuGuestNotices, GuestNoticesEnabled());
 #ifdef __WXMSW__
     bar->Check(idMenuStartWithWindows, StartsWithWindows());
 #endif
@@ -470,6 +492,284 @@ void FriendsListFrame::SetShowOffline(bool show)
     }
     ApplyFilter();
     RefreshMenus();
+}
+
+void FriendsListFrame::SetPinned(uint64 friendID, bool pinned)
+{
+    if (pinned)
+    {
+        m_pinned.insert(friendID);
+    }
+    else
+    {
+        m_pinned.erase(friendID);
+    }
+    SavePinnedFriends(m_pinned);
+    ArrangeFriendPanels();
+}
+
+void FriendsListFrame::ShowFriendMenu(uint64 friendID, const wxPoint& screenPosition)
+{
+    if (m_friendPanels.find(friendID) == m_friendPanels.end())
+    {
+        return;     // gone while the click was handled
+    }
+    const bool pinned = m_pinned.count(friendID) != 0;
+    wxMenu menu;
+    menu.Append(idMenuPinFriend, pinned ? "&Unpin" : "&Pin to the top");
+    // At the mouse, or (from the keyboard) wherever Windows puts it.
+    const wxPoint where = screenPosition == wxDefaultPosition ? wxDefaultPosition : ScreenToClient(screenPosition);
+    if (GetPopupMenuSelectionFromUser(menu, where) == idMenuPinFriend)
+    {
+        SetPinned(friendID, !pinned);
+    }
+}
+
+// A game's small picture for the recent games list, w x h pixels: its
+// artwork cut to that shape, or its initials on a colour.
+static wxBitmap GameThumbnail(const wxString& path, const wxString& name, unsigned long long seed, int w, int h)
+{
+    wxImage image;
+    if (!path.empty())
+    {
+        wxLogNull quiet;
+        image.LoadFile(path);
+    }
+    if (image.IsOk() && image.GetWidth() > 0 && image.GetHeight() > 0)
+    {
+        // Cut the middle to the thumbnail's shape, then shrink it.
+        const double scale = std::max((double)w / image.GetWidth(), (double)h / image.GetHeight());
+        const int cutW = std::min(image.GetWidth(), (int)std::lround(w / scale));
+        const int cutH = std::min(image.GetHeight(), (int)std::lround(h / scale));
+        image = image.GetSubImage(wxRect((image.GetWidth() - cutW) / 2, (image.GetHeight() - cutH) / 2, cutW, cutH));
+        image.Rescale(w, h, wxIMAGE_QUALITY_HIGH);
+        if (image.HasAlpha())
+        {
+            image.ClearAlpha();
+        }
+        return wxBitmap(image);
+    }
+    wxBitmap bitmap(w, h);
+    wxMemoryDC dc(bitmap);
+    dc.SetBackground(wxBrush(Ui::PlaceholderColour(seed)));
+    dc.Clear();
+    wxFont font = wxSystemSettings::GetFont(wxSYS_DEFAULT_GUI_FONT);
+    font.SetPixelSize(wxSize(0, std::max(8, h / 2)));
+    dc.SetFont(Ui::SemiBold(font));
+    dc.SetTextForeground(*wxWHITE);
+    const wxString initials = Ui::Initials(name);
+    const wxSize text = dc.GetTextExtent(initials);
+    dc.DrawText(initials, (w - text.x) / 2, (h - text.y) / 2);
+    dc.SelectObject(wxNullBitmap);
+    return bitmap;
+}
+
+void FriendsListFrame::RefreshRecentGames(bool show, uint32 accountID)
+{
+    std::vector<RecentGame> games;
+    const wxLongLong now = wxGetLocalTimeMillis();
+    if (!show)
+    {
+        m_gamesCheckedAt = 0;
+    }
+    else
+    {
+        // Steam's files are looked at every few seconds at most.
+        if (m_gamesCheckedAt != 0 && now - m_gamesCheckedAt < 5000)
+        {
+            return;
+        }
+        m_gamesCheckedAt = now;
+        games = GetRecentGames(accountID, 5);
+    }
+    wxString shown;
+    for (size_t i = 0; i < games.size(); ++i)
+    {
+        shown += wxString::Format("%llu ", (unsigned long long)games[i].game.ToUint64()) + games[i].name + "\n";
+    }
+    if (shown == m_gamesShown)
+    {
+        return;
+    }
+    m_gamesShown = shown;
+    m_gameButtons.clear();
+    m_gamesSizer->Clear(true);
+    if (!games.empty())
+    {
+        wxStaticText* heading = new wxStaticText(m_gameCard, wxID_ANY, "RECENT GAMES");
+        heading->SetFont(Ui::SemiBold(GetFont()).Scaled(0.85f));
+        Ui::SetColours(heading, nullptr, &Ui::kTextSecondary);
+        m_gamesSizer->Add(heading, 0, wxTOP | wxBOTTOM, FromDIP(8));
+    }
+    const wxSize thumb = FromDIP(wxSize(56, 26));
+    for (size_t i = 0; i < games.size(); ++i)
+    {
+        const unsigned long long id = (unsigned long long)games[i].game.ToUint64();
+        const wxString name = games[i].name;
+        Card* row = new Card(m_gameCard, &Ui::kSubtle, nullptr, 6);
+        wxBoxSizer* line = new wxBoxSizer(wxHORIZONTAL);
+        wxStaticBitmap* picture = new wxStaticBitmap(row, wxID_ANY,
+            GameThumbnail(GetGameThumbnailPath(games[i].game, accountID), name, id, thumb.x, thumb.y));
+        line->Add(picture, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+        wxStaticText* text = new wxStaticText(row, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize,
+                                              wxST_NO_AUTORESIZE | wxST_ELLIPSIZE_END);
+        text->SetLabelText(name);
+        Ui::SetColours(text, nullptr, &Ui::kText);
+        text->SetMinSize(wxSize(FromDIP(40), text->GetCharHeight()));
+        text->SetToolTip(name);
+        line->Add(text, 1, wxALIGN_CENTER_VERTICAL);
+        FlatButton* play = new FlatButton(row, "Play", FlatButton::Secondary, 0, true);
+        play->SetToolTip("Start " + name + " through Steam.");
+        play->Bind(wxEVT_BUTTON, [this, id, name](wxCommandEvent&)
+        {
+            // The rows are rebuilt once the game is running, this button included.
+            CallAfter([this, id, name]() { StartGame(id, name); });
+        });
+        line->Add(play, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(6));
+        m_gameButtons[id] = play;
+        row->Content()->Add(line, 0, wxEXPAND | wxALL, FromDIP(5));
+        m_gamesSizer->Add(row, 0, wxEXPAND | wxBOTTOM, FromDIP(6));
+        // Tab goes through the list where it is, above the link button.
+        row->MoveBeforeInTabOrder(m_linkButton);
+    }
+    Ui::Relayout(m_gameCard);
+}
+
+void FriendsListFrame::StartGame(unsigned long long gameID, const wxString& name)
+{
+    // Steam starts it the way its library does (non-Steam games too).
+    if (!wxLaunchDefaultBrowser(wxString::Format("steam://rungameid/%llu", gameID)))
+    {
+        ShowNotice("Steam didn't start " + name + ". Start it from Steam instead.", NoticeWarning);
+        return;
+    }
+    m_startingGame = gameID;
+    m_startingName = name;
+    m_startingSince = wxGetLocalTimeMillis();
+    UpdateStatus();
+}
+
+// "A", "A and B", "A, B and C".
+static wxString ListNames(const wxArrayString& names)
+{
+    wxString text;
+    for (size_t i = 0; i < names.size(); ++i)
+    {
+        if (i > 0)
+        {
+            text += i + 1 == names.size() ? " and " : ", ";
+        }
+        text += names[i];
+    }
+    return text;
+}
+
+void FriendsListFrame::UpdateGuestNotices()
+{
+    const std::vector<ConnectedGuest>& guests = m_pRemoteInvite->Guests();
+    const wxLongLong now = wxGetLocalTimeMillis();
+    // Whoever is here when the app starts isn't news, and neither is everyone
+    // going when the session is ended (the card says why it ended). Guests
+    // leaving by themselves are, the last one too.
+    const uint32 ends = m_pRemoteInvite->SessionEnds();
+    const bool quiet = !m_guestsSeen || ends != m_sessionEndsSeen;
+    m_sessionEndsSeen = ends;
+    m_guestsSeen = true;
+    wxArrayString joined, left;
+    std::set<uint64> here;
+    for (size_t i = 0; i < guests.size(); ++i)
+    {
+        const uint64 key = guests[i].key;
+        here.insert(key);
+        bool placeholder = false;
+        wxString name = ControlFrame::GuestName(guests[i], placeholder);
+        auto known = m_guestNames.find(key);
+        if (known != m_guestNames.end())
+        {
+            // A name that arrived late is the one they leave with.
+            if (!placeholder)
+            {
+                known->second = name;
+            }
+            continue;
+        }
+        if (!quiet)
+        {
+            // Their name, as soon as Steam knows it (a few seconds at most).
+            if (!m_pendingJoins.count(key))
+            {
+                m_pendingJoins[key] = now;
+            }
+            if (placeholder && now - m_pendingJoins[key] < 5000)
+            {
+                continue;
+            }
+        }
+        if (placeholder)
+        {
+            name = "A guest";
+        }
+        if (!quiet)
+        {
+            joined.Add(name);
+        }
+        m_pendingJoins.erase(key);
+        m_guestNames[key] = name;
+    }
+    for (auto it = m_pendingJoins.begin(); it != m_pendingJoins.end();)
+    {
+        // Gone before Steam said who they were.
+        it = here.count(it->first) ? std::next(it) : m_pendingJoins.erase(it);
+    }
+    for (auto it = m_guestNames.begin(); it != m_guestNames.end();)
+    {
+        if (here.count(it->first))
+        {
+            ++it;
+            continue;
+        }
+        if (!quiet)
+        {
+            left.Add(it->second);
+        }
+        it = m_guestNames.erase(it);
+    }
+    if (!joined.empty() || !left.empty())
+    {
+        AnnounceGuests(joined, left);
+    }
+}
+
+void FriendsListFrame::AnnounceGuests(const wxArrayString& joined, const wxArrayString& left)
+{
+    if (!GuestNoticesEnabled())
+    {
+        return;
+    }
+    wxString text;
+    if (!joined.empty())
+    {
+        text = ListNames(joined) + " joined.";
+    }
+    if (!left.empty())
+    {
+        text += (text.empty() ? "" : " ") + ListNames(left) + " left.";
+    }
+    ShowNotice(text, NoticeInfo);
+    // While you're in the game (this window isn't in front), by the clock too;
+    // the join and leave sounds already play.
+#ifdef __WXMSW__
+    const bool inFront = IsShown() && ::GetForegroundWindow() == GetHWND();
+#else
+    const bool inFront = IsShown() && IsActive();
+#endif
+    if (m_tray && !inFront)
+    {
+        const wxString title = left.empty() ? wxString(joined.size() == 1 ? "Guest joined" : "Guests joined") :
+                               joined.empty() ? wxString(left.size() == 1 ? "Guest left" : "Guests left") :
+                               wxString("Guests");
+        m_tray->Notify(title, text);
+    }
 }
 
 void FriendsListFrame::UpdateColumns()
@@ -564,6 +864,11 @@ void FriendsListFrame::BuildSessionCard(wxSizer* sizer)
     content->AddSpacer(FromDIP(2));
     content->Add(detailRow, 0, wxEXPAND | wxLEFT | wxRIGHT, pad);
 
+    // With no game running: the games played lately, to start one from here
+    // (RefreshRecentGames).
+    m_gamesSizer = new wxBoxSizer(wxVERTICAL);
+    content->Add(m_gamesSizer, 0, wxEXPAND | wxLEFT | wxRIGHT, pad);
+
     // Create a guest link (or copy it again / make another), and End session.
     wxBoxSizer* buttons = new wxBoxSizer(wxHORIZONTAL);
     m_linkButton = new FlatButton(m_gameCard, "Create guest link", FlatButton::Primary, Ui::kGlyphLink);
@@ -631,9 +936,14 @@ void FriendsListFrame::BuildFriendsList(wxSizer* sizer)
     m_friendsListContainer->SetScrollRate(0, FromDIP(8));
     m_friendsListSizer = new wxBoxSizer(wxVERTICAL);
 
-    // Friends who've joined before, then online friends, then the ones who
-    // appear offline (they may just be invisible, and an invite link reaches
-    // them in Steam chat anyway). The offline ones fold away.
+    // Pinned friends (right-click a friend), friends who've joined before,
+    // then online friends, then the ones who appear offline (they may just be
+    // invisible, and an invite link reaches them in Steam chat anyway). The
+    // offline ones fold away.
+    m_pinnedHeader = AddSectionHeader(&m_pinnedLabel, nullptr);
+    m_pinnedLabel->SetLabel("PINNED");
+    m_pinnedSizer = new wxBoxSizer(wxVERTICAL);
+    m_friendsListSizer->Add(m_pinnedSizer, 0, wxEXPAND);
     m_recentHeader = AddSectionHeader(&m_recentLabel, nullptr);
     m_recentLabel->SetLabel("PLAYED WITH RECENTLY");
     m_recentSizer = new wxBoxSizer(wxVERTICAL);
@@ -818,6 +1128,25 @@ void FriendsListFrame::UpdateStatus()
     }
     const unsigned guests = (unsigned)m_pRemoteInvite->Guests().size();
     const bool desktop = m_pRemoteInvite->IsSharingDesktop();
+    // How long this session has been on.
+    if (!session)
+    {
+        m_sessionSince = 0;
+    }
+    else if (m_sessionSince == 0)
+    {
+        m_sessionSince = now;
+    }
+    const long sessionMinutes = session ? (long)((now - m_sessionSince) / 60000).GetValue() : 0;
+    // A game started from the recent games list, until it's running (or a
+    // minute has gone by without it).
+    if (m_startingGame != 0 && (hasGame || session || !signedIn || now - m_startingSince > 60000))
+    {
+        m_startingGame = 0;
+    }
+    // With no game running, the games played lately, to start one from here.
+    RefreshRecentGames(signedIn && !session && !hasGame, account);
+    const bool gamesListed = !m_gamesShown.empty();
 
     // The state line, the line under it, and the same in a sentence for the tray.
     wxString state, detail, trayText;
@@ -834,18 +1163,33 @@ void FriendsListFrame::UpdateStatus()
         const wxString who = guests == 0 ? wxString("waiting for guests") :
                              guests == 1 ? wxString("1 guest connected") :
                              wxString::Format("%u guests connected", guests);
+        const wxString length = sessionMinutes >= 60 ?
+            (sessionMinutes % 60 ? wxString::Format("%ld h %ld min", sessionMinutes / 60, sessionMinutes % 60)
+                                 : wxString::Format("%ld h", sessionMinutes / 60)) :
+            wxString::Format("%ld min", sessionMinutes);
         state = "Sharing" + Ui::Separator() + who;
+        if (sessionMinutes >= 1)
+        {
+            state += Ui::Separator() + length;
+        }
         detail = desktop ? "Guests can see your whole screen" : "Only the game is shared, not your screen";
         detailColour = desktop ? &Ui::kWarnText : &Ui::kTextSecondary;
         dot = Ui::kGood;
-        trayText = "Sharing " + gameInText + ": " +
+        trayText = "Sharing " + gameInText + (sessionMinutes >= 1 ? " for " + length : wxString()) + ": " +
                    (guests == 0 ? wxString("waiting for guests to join.") : who + ".") +
                    (desktop ? " Guests can see your whole screen." : "");
+    }
+    else if (!hasGame && m_startingGame != 0)
+    {
+        state = "Starting " + m_startingName + "...";
+        detail = "Steam is starting it. Invite someone once it's running.";
+        trayText = "Starting " + m_startingName + "...";
     }
     else if (!hasGame)
     {
         state = "No game running";
-        detail = "Start a game through Steam, then invite someone.";
+        detail = gamesListed ? "Start a game below or through Steam, then invite someone."
+                             : "Start a game through Steam, then invite someone.";
         trayText = "No game running. Start a game through Steam, then invite someone.";
     }
     else
@@ -965,6 +1309,18 @@ void FriendsListFrame::UpdateStatus()
     if (RefreshWaitingInvites())
     {
         relayout = true;
+    }
+    // The Play button of a game being started says so.
+    for (auto it = m_gameButtons.begin(); it != m_gameButtons.end(); ++it)
+    {
+        const bool starting = it->first == m_startingGame;
+        const wxString playLabel = starting ? "Starting..." : "Play";
+        if (it->second->GetLabel() != playLabel)
+        {
+            it->second->SetLabel(playLabel);
+            it->second->Enable(!starting);
+            relayout = true;
+        }
     }
 
     // The short message, coloured by kind.
@@ -1404,6 +1760,7 @@ void FriendsListFrame::OnUpdaterChange()
 
 void FriendsListFrame::OnTick(wxTimerEvent&)
 {
+    UpdateGuestNotices();
     UpdateStatus();
     UpdateGuestLinkHotKey();
 
@@ -1482,6 +1839,12 @@ void FriendsListFrame::AddFreiendPanel(CSteamID friendID)
         return;
     }
     m_friendPanels[friendID64] = new FriendPanel(m_friendsListContainer, friendID);
+    // Right-click (on the row or its button) for Pin to the top / Unpin.
+    m_friendPanels[friendID64]->Bind(wxEVT_CONTEXT_MENU, [this, friendID64](wxContextMenuEvent& event)
+    {
+        const wxPoint where = event.GetPosition();
+        CallAfter([this, friendID64, where]() { ShowFriendMenu(friendID64, where); });
+    });
 }
 
 void FriendsListFrame::RemoveFriendPanel(CSteamID friendID)
@@ -1491,6 +1854,7 @@ void FriendsListFrame::RemoveFriendPanel(CSteamID friendID)
     if(it != m_friendPanels.end())
     {
         FriendPanel* panel = (*it).second;
+        m_pinnedSizer->Detach(panel);
         m_recentSizer->Detach(panel);
         m_onlineSizer->Detach(panel);
         m_offlineSizer->Detach(panel);
@@ -1503,13 +1867,19 @@ void FriendsListFrame::RemoveFriendPanel(CSteamID friendID)
 
 void FriendsListFrame::ArrangeFriendPanels()
 {
-    // Up to kRecentFriends friends who joined a session before, most recent
-    // first; everyone else under Online or Offline, by name.
+    // Pinned friends first, by name; then up to kRecentFriends friends who
+    // joined a session before, most recent first; everyone else under Online
+    // or Offline, by name.
     static const size_t kRecentFriends = 8;
     std::vector<std::pair<long, FriendPanel*>> played;
-    std::vector<FriendPanel*> online, offline;
+    std::vector<FriendPanel*> pinned, online, offline;
     for (auto it = m_friendPanels.begin(); it != m_friendPanels.end(); ++it)
     {
+        if (m_pinned.count(it->first))
+        {
+            pinned.push_back(it->second);
+            continue;
+        }
         auto joined = m_joinTimes.find(it->first);
         if (joined != m_joinTimes.end())
         {
@@ -1533,7 +1903,7 @@ void FriendsListFrame::ArrangeFriendPanels()
 
     for (auto it = m_friendPanels.begin(); it != m_friendPanels.end(); ++it)
     {
-        if (m_recentIDs.count(it->first) == 0)
+        if (m_recentIDs.count(it->first) == 0 && m_pinned.count(it->first) == 0)
         {
             (it->second->IsOnline() ? online : offline).push_back(it->second);
         }
@@ -1542,13 +1912,19 @@ void FriendsListFrame::ArrangeFriendPanels()
     {
         return a->GetDisplayPersonaName().CmpNoCase(b->GetDisplayPersonaName()) < 0;
     };
+    std::sort(pinned.begin(), pinned.end(), byName);
     std::sort(online.begin(), online.end(), byName);
     std::sort(offline.begin(), offline.end(), byName);
 
     // Detach only; the panels themselves stay.
+    m_pinnedSizer->Clear(false);
     m_recentSizer->Clear(false);
     m_onlineSizer->Clear(false);
     m_offlineSizer->Clear(false);
+    for (size_t i = 0; i < pinned.size(); ++i)
+    {
+        m_pinnedSizer->Add(pinned[i], 0, wxEXPAND);
+    }
     for (size_t i = 0; i < played.size(); ++i)
     {
         m_recentSizer->Add(played[i].second, 0, wxEXPAND);
@@ -1604,21 +1980,24 @@ void FriendsListFrame::ApplyFilter()
     const bool searching = !needle.empty();
     // A search looks through everyone, the folded-away offline friends too.
     const bool showOffline = m_showOffline || searching;
-    int recent = 0, online = 0, offline = 0;
+    int pinned = 0, recent = 0, online = 0, offline = 0;
     for (auto it = m_friendPanels.begin(); it != m_friendPanels.end(); ++it)
     {
         FriendPanel* panel = it->second;
         // A search finds names and what friends are doing ("playing ...").
         const bool match = !searching || panel->GetDisplayPersonaName().Lower().Contains(needle) ||
                            panel->GetDisplayPersonaState().Lower().Contains(needle);
-        const bool isRecent = m_recentIDs.count(it->first) != 0;
-        const bool isOffline = !isRecent && !panel->IsOnline();
+        // Pinned friends stay at the top even when they appear offline.
+        const bool isPinned = m_pinned.count(it->first) != 0;
+        const bool isRecent = !isPinned && m_recentIDs.count(it->first) != 0;
+        const bool isOffline = !isPinned && !isRecent && !panel->IsOnline();
         if (match)
         {
-            ++(isRecent ? recent : isOffline ? offline : online);
+            ++(isPinned ? pinned : isRecent ? recent : isOffline ? offline : online);
         }
         panel->Show(match && (!isOffline || showOffline));
     }
+    m_pinnedHeader->Show(pinned > 0);
     m_recentHeader->Show(recent > 0);
     m_onlineLabel->SetLabel(wxString::Format("ONLINE (%d)", online));
     m_onlineHeader->Show(online > 0);
@@ -1629,7 +2008,7 @@ void FriendsListFrame::ApplyFilter()
                                               : "Show the friends who appear offline (they may be invisible).");
     m_offlineToggle->Show(!searching);
     m_offlineHeader->Layout();
-    m_noMatches->Show(searching && recent + online + offline == 0);
+    m_noMatches->Show(searching && pinned + recent + online + offline == 0);
     m_friendsListContainer->FitInside();
     m_friendsListContainer->Layout();
 }

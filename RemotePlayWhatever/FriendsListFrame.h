@@ -20,7 +20,8 @@ class WrapLabel;
 // The main window: a menu bar (File, Session, Options, Help), an update bar
 // when there's a new version, a card for the game being shared (its picture,
 // what's shared, the guest link and session buttons, invites nobody has used
-// yet, short messages), then the searchable friends list with an Invite button
+// yet, short messages; with no game running, recent games to start), then
+// the searchable friends list (pinned friends first) with an Invite button
 // per friend. When the window is wide the card and the friends list sit side
 // by side.
 class FriendsListFrame : public wxFrame
@@ -78,6 +79,19 @@ private:
     void ShowGuestLinkQrCode(bool anyLink, uint32 guestID = 0);
     // Show or fold away the friends who appear offline (saved).
     void SetShowOffline(bool show);
+    // Pin a friend to the top of the list, or unpin them (saved), and the
+    // right-click menu of a friend's row that does it.
+    void SetPinned(uint64 friendID, bool pinned);
+    void ShowFriendMenu(uint64 friendID, const wxPoint& screenPosition);
+
+    // With no game running, the games played lately, each with a Play button
+    // that starts it through Steam; shown or hidden, rebuilt when they change.
+    void RefreshRecentGames(bool show, uint32 accountID);
+    void StartGame(unsigned long long gameID, const wxString& name);
+    // "<name> joined." / "<name> left.": in the session card, and by the clock
+    // when this window isn't in front (Options > Notifications...).
+    void UpdateGuestNotices();
+    void AnnounceGuests(const wxArrayString& joined, const wxArrayString& left);
 
     void BuildUpdateBar(wxSizer* sizer);
     void BuildSessionCard(wxSizer* sizer);
@@ -129,30 +143,51 @@ private:
     Card* m_noticeCard;
     wxStaticText* m_noticeIcon;
     WrapLabel* m_noticeText;
+    // Recent games (no game running): a heading and a row per game.
+    wxBoxSizer* m_gamesSizer;
+    wxString m_gamesShown;              // which games the rows are for ("" = hidden)
+    std::map<unsigned long long, FlatButton*> m_gameButtons;
+    wxLongLong m_gamesCheckedAt;
+    unsigned long long m_startingGame;  // a game just started from the list (CGameID, 0 = none)
+    wxString m_startingName;
+    wxLongLong m_startingSince;
 
     // Friends list.
     SearchBox* m_search;
     wxScrolledWindow* m_friendsListContainer;
     wxBoxSizer* m_friendsListSizer;
+    wxWindow* m_pinnedHeader;
     wxWindow* m_recentHeader;
     wxWindow* m_onlineHeader;
     wxWindow* m_offlineHeader;
+    wxStaticText* m_pinnedLabel;
     wxStaticText* m_recentLabel;
     wxStaticText* m_onlineLabel;
     wxStaticText* m_offlineLabel;
     FlatButton* m_offlineToggle;
     wxStaticText* m_noMatches;
+    wxBoxSizer* m_pinnedSizer;
     wxBoxSizer* m_recentSizer;
     wxBoxSizer* m_onlineSizer;
     wxBoxSizer* m_offlineSizer;
     bool m_showOffline;
 
     std::map<uint64, FriendPanel*> m_friendPanels;
+    // Friends pinned to the top (saved).
+    std::set<uint64> m_pinned;
     // "Played with recently": when friends last joined, and who's shown there.
     std::map<uint64, long> m_joinTimes;
     std::set<uint64> m_recentIDs;
     // Friends whose invite is on its way to Steam, and since when.
     std::map<uint64, wxLongLong> m_sending;
+    // Guests connected (by GuestKey) and the names they were announced with,
+    // and guests who just joined, waiting (a few seconds) for Steam to say who
+    // they are.
+    std::map<uint64, wxString> m_guestNames;
+    std::map<uint64, wxLongLong> m_pendingJoins;
+    bool m_guestsSeen;
+    uint32 m_sessionEndsSeen;           // the handler's SessionEnds() last time
+    wxLongLong m_sessionSince;          // when the current session started (0 = none)
 
     void OnFriendInvite(wxCommandEvent& event);
     void OnLinkButton();

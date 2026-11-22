@@ -15,6 +15,7 @@
 #include <wx/log.h>
 #include <wx/stdpaths.h>
 #include <wx/timer.h>
+#include <wx/tokenzr.h>
 #include <wx/utils.h>
 #ifdef __WXMSW__
 #include <wx/msw/registry.h>
@@ -59,6 +60,55 @@ void SetSoundsEnabled(bool enabled)
         config->Write("/Options/Sounds", enabled);
         config->Flush();
     }
+}
+
+bool GuestNoticesEnabled()
+{
+    wxConfigBase* config = wxConfigBase::Get();
+    return !config || config->ReadBool("/Options/GuestNotices", true);
+}
+
+void SetGuestNoticesEnabled(bool enabled)
+{
+    wxConfigBase* config = wxConfigBase::Get();
+    if (config)
+    {
+        config->Write("/Options/GuestNotices", enabled);
+        config->Flush();
+    }
+}
+
+std::set<uint64> LoadPinnedFriends()
+{
+    std::set<uint64> pinned;
+    wxConfigBase* config = wxConfigBase::Get();
+    const wxString list = config ? config->Read("/Options/PinnedFriends", wxString()) : wxString();
+    wxStringTokenizer ids(list, ",", wxTOKEN_STRTOK);
+    while (ids.HasMoreTokens())
+    {
+        unsigned long long id = 0;
+        if (ids.GetNextToken().ToULongLong(&id) && id)
+        {
+            pinned.insert((uint64)id);
+        }
+    }
+    return pinned;
+}
+
+void SavePinnedFriends(const std::set<uint64>& pinned)
+{
+    wxConfigBase* config = wxConfigBase::Get();
+    if (!config)
+    {
+        return;
+    }
+    wxString list;
+    for (std::set<uint64>::const_iterator it = pinned.begin(); it != pinned.end(); ++it)
+    {
+        list += (list.empty() ? "" : ",") + wxString::Format("%llu", (unsigned long long)*it);
+    }
+    config->Write("/Options/PinnedFriends", list);
+    config->Flush();
 }
 
 void PlayGuestSound(bool joined)

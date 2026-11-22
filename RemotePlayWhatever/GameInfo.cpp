@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <cstdlib>
 #include <map>
 #include <regex>
 #include <string>
@@ -170,13 +172,20 @@ static bool ReadCString(const std::string& data, size_t& pos, std::string& out)
 
 // shortcuts.vdf is Steam's binary KeyValues format: every item is a type byte,
 // a NUL-terminated name and a value, and 0x08 ends a nested map. The layout is
-// shortcuts -> "<index>" -> { appid, AppName, Exe, ..., tags { ... } }.
-static void ParseShortcuts(const std::string& data, std::map<uint32, wxString>& names)
+// shortcuts -> "<index>" -> { appid, AppName, Exe, LastPlayTime, ..., tags { ... } }.
+struct ShortcutInfo
+{
+    wxString name;
+    long long lastPlayed;   // Unix time, 0 if never started through Steam
+};
+
+static void ParseShortcuts(const std::string& data, std::map<uint32, ShortcutInfo>& shortcuts)
 {
     size_t pos = 0;
     int depth = 0;
     bool hasID = false;
     uint32 id = 0;
+    uint32 lastPlayed = 0;
     std::string appName, exe;
 
     while (pos < data.size())
@@ -191,7 +200,10 @@ static void ParseShortcuts(const std::string& data, std::map<uint32, wxString>& 
                 uint32 shortcutID = hasID ? id : (Crc32(exe + appName) | 0x80000000u);
                 if (!appName.empty())
                 {
-                    names[shortcutID] = wxString::FromUTF8(appName.c_str());
+                    ShortcutInfo info;
+                    info.name = wxString::FromUTF8(appName.c_str());
+                    info.lastPlayed = lastPlayed;
+                    shortcuts[shortcutID] = info;
                 }
             }
             if (--depth < 0)
@@ -214,6 +226,7 @@ static void ParseShortcuts(const std::string& data, std::map<uint32, wxString>& 
             {
                 hasID = false;
                 id = 0;
+                lastPlayed = 0;
                 appName.clear();
                 exe.clear();
             }
@@ -230,20 +243,27 @@ static void ParseShortcuts(const std::string& data, std::map<uint32, wxString>& 
             break;
         }
         case 0x02:              // 32-bit integer
+        {
             if (pos + 4 > data.size())
             {
                 return;
             }
+            const uint32 value = (uint32)(unsigned char)data[pos] |
+                                 ((uint32)(unsigned char)data[pos + 1] << 8) |
+                                 ((uint32)(unsigned char)data[pos + 2] << 16) |
+                                 ((uint32)(unsigned char)data[pos + 3] << 24);
             if (depth == 2 && SameKey(key, "appid"))
             {
-                id = (uint32)(unsigned char)data[pos] |
-                     ((uint32)(unsigned char)data[pos + 1] << 8) |
-                     ((uint32)(unsigned char)data[pos + 2] << 16) |
-                     ((uint32)(unsigned char)data[pos + 3] << 24);
+                id = value;
                 hasID = true;
+            }
+            else if (depth == 2 && SameKey(key, "LastPlayTime"))
+            {
+                lastPlayed = value;
             }
             pos += 4;
             break;
+        }
         case 0x03:              // float
         case 0x04:              // pointer
         case 0x06:              // colour
@@ -259,10 +279,11 @@ static void ParseShortcuts(const std::string& data, std::map<uint32, wxString>& 
     }
 }
 
-wxString GetShortcutName(uint32 shortcutID, uint32 accountID)
+// The account's non-Steam games, from the first Steam install that has its
+// shortcuts.vdf; re-read only when Steam has changed the file.
+static const std::map<uint32, ShortcutInfo>& Shortcuts(uint32 accountID)
 {
-    // Re-read the file only when Steam has changed it (a shortcut was added or renamed).
-    static std::map<uint32, wxString> names;
+    static std::map<uint32, ShortcutInfo> shortcuts;
     static wxString loadedPath;
     static wxDateTime loadedTime;
 
@@ -273,23 +294,26 @@ wxString GetShortcutName(uint32 shortcutID, uint32 accountID)
         {
             continue;
         }
-
         wxDateTime modified = wxFileName(path).GetModificationTime();
         if (path != loadedPath || !modified.IsValid() || !loadedTime.IsValid() || modified != loadedTime)
         {
-            names.clear();
-            ParseShortcuts(ReadBinaryFile(path), names);
+            shortcuts.clear();
+            ParseShortcuts(ReadBinaryFile(path), shortcuts);
             loadedPath = path;
             loadedTime = modified;
         }
-
-        auto it = names.find(shortcutID);
-        if (it != names.end())
-        {
-            return it->second;
-        }
+        return shortcuts;
     }
-    return wxString();
+    shortcuts.clear();
+    loadedPath.clear();
+    return shortcuts;
+}
+
+wxString GetShortcutName(uint32 shortcutID, uint32 accountID)
+{
+    const std::map<uint32, ShortcutInfo>& shortcuts = Shortcuts(accountID);
+    auto it = shortcuts.find(shortcutID);
+    return it != shortcuts.end() ? it->second.name : wxString();
 }
 
 wxString GetGameName(CGameID game, uint32 accountID)
@@ -413,6 +437,243 @@ wxString GetGameArtworkPath(CGameID game, uint32 accountID)
             const wxString grid = wxString::Format("%s/userdata/%u/config/grid", root, (unsigned)accountID);
             const wxString path = FindFile(grid, { wxString::Format("%u_hero.png", id), wxString::Format("%u_hero.jpg", id),
                                                    wxString::Format("%u.png", id), wxString::Format("%u.jpg", id),
+                                                   wxString::Format("%llu.png", id64), wxString::Format("%llu.jpg", id64) },
+                                           false);
+            if (!path.empty())
+            {
+                return path;
+            }
+        }
+    }
+    return wxString();
+}
+
+// When each Steam game was last played: UserLocalConfigStore > Software >
+// Valve > Steam > apps > <appid> > LastPlayed in the text KeyValues file
+// localconfig.vdf (keys in any case; comments and unquoted tokens allowed).
+static void ParseLastPlayed(const std::string& vdf, std::map<AppId_t, long long>& lastPlayed)
+{
+    static const char* const kPath[] = { "UserLocalConfigStore", "Software", "Valve", "Steam", "apps" };
+    std::vector<std::string> blocks;    // the keys of the blocks we're in
+    std::string key;
+    bool haveKey = false;
+    size_t i = 0;
+    const size_t n = vdf.size();
+    while (i < n)
+    {
+        const char c = vdf[i];
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\n')
+        {
+            ++i;
+            continue;
+        }
+        if (c == '/' && i + 1 < n && vdf[i + 1] == '/')
+        {
+            while (i < n && vdf[i] != '\n')
+            {
+                ++i;
+            }
+            continue;
+        }
+        if (c == '{')
+        {
+            blocks.push_back(haveKey ? key : std::string());
+            haveKey = false;
+            ++i;
+            continue;
+        }
+        if (c == '}')
+        {
+            if (!blocks.empty())
+            {
+                blocks.pop_back();
+            }
+            haveKey = false;
+            ++i;
+            continue;
+        }
+        std::string token;
+        if (c == '"')
+        {
+            for (++i; i < n && vdf[i] != '"'; ++i)
+            {
+                if (vdf[i] == '\\' && i + 1 < n)
+                {
+                    ++i;
+                }
+                token += vdf[i];
+            }
+            ++i;
+        }
+        else
+        {
+            while (i < n && vdf[i] != ' ' && vdf[i] != '\t' && vdf[i] != '\r' && vdf[i] != '\n' &&
+                   vdf[i] != '{' && vdf[i] != '}' && vdf[i] != '"')
+            {
+                token += vdf[i++];
+            }
+        }
+        if (!haveKey)
+        {
+            key = token;
+            haveKey = true;
+            continue;
+        }
+        // A "key" "value" pair.
+        haveKey = false;
+        if (blocks.size() != 6 || !SameKey(key, "LastPlayed"))
+        {
+            continue;
+        }
+        bool inApps = true;
+        for (size_t level = 0; level < 5 && inApps; ++level)
+        {
+            inApps = SameKey(blocks[level], kPath[level]);
+        }
+        const unsigned long appID = strtoul(blocks[5].c_str(), nullptr, 10);
+        const long long when = strtoll(token.c_str(), nullptr, 10);
+        if (inApps && appID > 0 && when > 0)
+        {
+            lastPlayed[(AppId_t)appID] = when;
+        }
+    }
+}
+
+// Steam's tools, which show up as played but aren't games to share.
+static bool IsSteamTool(AppId_t appID, const wxString& name)
+{
+    return appID == 480 || appID == 228980 || name.StartsWith("Proton") || name.StartsWith("Steam Linux Runtime") ||
+           name.Contains("Redistributable") || name == "SteamVR";
+}
+
+std::vector<RecentGame> GetRecentGames(uint32 accountID, size_t max)
+{
+    static std::vector<RecentGame> cached;
+    static wxString cachedKey;
+
+    // Steam games from localconfig.vdf (the first Steam install that has it).
+    wxString localConfig;
+    for (const wxString& root : SteamRoots())
+    {
+        const wxString path = wxString::Format("%s/userdata/%u/config/localconfig.vdf", root, (unsigned)accountID);
+        if (wxFileExists(path))
+        {
+            localConfig = path;
+            break;
+        }
+    }
+    const std::map<uint32, ShortcutInfo>& shortcuts = Shortcuts(accountID);
+    // Worked out again only when either file has changed.
+    const wxDateTime changed = localConfig.empty() ? wxDateTime() : wxFileName(localConfig).GetModificationTime();
+    long long shortcutsStamp = 0;
+    for (auto it = shortcuts.begin(); it != shortcuts.end(); ++it)
+    {
+        shortcutsStamp += it->second.lastPlayed + it->first;
+    }
+    const wxString key = wxString::Format("%u/%u/", (unsigned)accountID, (unsigned)max) +
+                         (changed.IsValid() ? changed.FormatISOCombined() : wxString("-")) +
+                         wxString::Format("/%u/%lld", (unsigned)shortcuts.size(), shortcutsStamp);
+    if (key == cachedKey)
+    {
+        return cached;
+    }
+
+    std::vector<RecentGame> games;
+    std::map<AppId_t, long long> lastPlayed;
+    if (!localConfig.empty())
+    {
+        ParseLastPlayed(ReadTextFile(localConfig), lastPlayed);
+    }
+    std::vector<std::pair<long long, AppId_t>> byTime;
+    for (auto it = lastPlayed.begin(); it != lastPlayed.end(); ++it)
+    {
+        byTime.push_back(std::make_pair(it->second, it->first));
+    }
+    std::sort(byTime.rbegin(), byTime.rend());
+    const std::vector<wxString> folders = LibraryFolders();
+    for (size_t i = 0; i < byTime.size() && games.size() < max; ++i)
+    {
+        const AppId_t appID = byTime[i].second;
+        bool installed = false;
+        for (const wxString& folder : folders)
+        {
+            if (wxFileExists(wxString::Format("%s/steamapps/appmanifest_%u.acf", folder, (unsigned)appID)))
+            {
+                installed = true;
+                break;
+            }
+        }
+        const wxString name = installed ? GetSteamAppName(appID) : wxString();
+        if (!installed || IsSteamTool(appID, name))
+        {
+            continue;
+        }
+        RecentGame game;
+        game.game = CGameID(appID);
+        game.name = name;
+        game.lastPlayed = byTime[i].first;
+        games.push_back(game);
+    }
+
+    // Non-Steam games started through Steam.
+    for (auto it = shortcuts.begin(); it != shortcuts.end(); ++it)
+    {
+        if (it->second.lastPlayed <= 0)
+        {
+            continue;
+        }
+        RecentGame game;
+        // A shortcut's game id: its id in the top half, type 2 (shortcut) at bit 24.
+        game.game = CGameID(((uint64)it->first << 32) | ((uint64)2 << 24));
+        game.name = it->second.name;
+        game.lastPlayed = it->second.lastPlayed;
+        games.push_back(game);
+    }
+
+    std::stable_sort(games.begin(), games.end(), [](const RecentGame& a, const RecentGame& b)
+    {
+        return a.lastPlayed > b.lastPlayed;
+    });
+    if (games.size() > max)
+    {
+        games.resize(max);
+    }
+    cached = games;
+    cachedKey = key;
+    return games;
+}
+
+wxString GetGameThumbnailPath(CGameID game, uint32 accountID)
+{
+    for (const wxString& root : SteamRoots())
+    {
+        if (game.IsSteamApp())
+        {
+            const unsigned appID = (unsigned)game.AppID();
+            const wxString cache = root + "/appcache/librarycache";
+            const wxString app = wxString::Format("%s/%u", cache, appID);
+            wxString path = FindFile(app, { "header.jpg", "library_header.jpg" }, true);
+            if (path.empty())
+            {
+                path = FindFile(cache, { wxString::Format("%u_header.jpg", appID) }, false);
+            }
+            if (path.empty())
+            {
+                path = FindFile(app, { "library_hero.jpg", "library_hero.png" }, true);
+            }
+            if (!path.empty())
+            {
+                return path;
+            }
+        }
+        else if (game.IsShortcut())
+        {
+            // userdata/<account>/config/grid: <id>.png is the wide grid picture.
+            const unsigned id = (unsigned)game.ModID();
+            const unsigned long long id64 = (unsigned long long)game.ToUint64();
+            const wxString grid = wxString::Format("%s/userdata/%u/config/grid", root, (unsigned)accountID);
+            const wxString path = FindFile(grid, { wxString::Format("%u.png", id), wxString::Format("%u.jpg", id),
+                                                   wxString::Format("%u_hero.png", id), wxString::Format("%u_hero.jpg", id),
                                                    wxString::Format("%llu.png", id64), wxString::Format("%llu.jpg", id64) },
                                            false);
             if (!path.empty())

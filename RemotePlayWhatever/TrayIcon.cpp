@@ -16,6 +16,7 @@ enum
     idTrayCopyLink,
     idTrayEndSession,
     idTraySounds,
+    idTrayGuestNotices,
     idTrayUpdate,
     idTrayCheckUpdates,
     idTrayAutoUpdates,
@@ -177,6 +178,7 @@ wxMenu* RpwTrayIcon::CreatePopupMenu()
     menu->AppendCheckItem(idTrayStartWithWindows, "Start with Windows")->Check(StartsWithWindows());
 #endif
     menu->AppendCheckItem(idTraySounds, "Sounds when guests join or leave")->Check(SoundsEnabled());
+    menu->AppendCheckItem(idTrayGuestNotices, "Notifications when guests join or leave")->Check(GuestNoticesEnabled());
     // Light or dark, or the same as Windows (the default).
     wxMenu* theme = new wxMenu;
     const ThemeChoice choice = LoadThemeChoice();
@@ -216,6 +218,9 @@ void RpwTrayIcon::OnMenu(wxCommandEvent& event)
         break;
     case idTraySounds:
         SetSoundsEnabled(!SoundsEnabled());
+        break;
+    case idTrayGuestNotices:
+        SetGuestNoticesEnabled(!GuestNoticesEnabled());
         break;
     case idTrayUpdate:
         m_main->ShowFromTray();

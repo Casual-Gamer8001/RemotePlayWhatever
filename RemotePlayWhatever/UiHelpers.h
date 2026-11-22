@@ -1,6 +1,7 @@
 #ifndef UIHELPERS_H
 #define UIHELPERS_H
 #include <map>
+#include <set>
 #include <wx/iconbndl.h>
 #include <wx/timer.h>
 #include <wx/toplevel.h>
@@ -16,6 +17,15 @@ void SetSoundsEnabled(bool enabled);
 
 // Short system sound for a guest joining or leaving (if sounds are enabled).
 void PlayGuestSound(bool joined);
+
+// "Notifications when guests join or leave" (saved setting, on by default):
+// a short message with their name, also by the clock while you're in the game.
+bool GuestNoticesEnabled();
+void SetGuestNoticesEnabled(bool enabled);
+
+// Friends pinned to the top of the list, by SteamID (saved).
+std::set<uint64> LoadPinnedFriends();
+void SavePinnedFriends(const std::set<uint64>& pinned);
 
 // What a friend was last allowed to use (keyboard, mouse, controller), saved
 // per SteamID so it's applied again the next time they join.
