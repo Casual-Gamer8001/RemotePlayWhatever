@@ -323,6 +323,20 @@ std::string RemotePlayInviteHandler::GuestLink() const
     return std::string();
 }
 
+std::string RemotePlayInviteHandler::GuestLinkFor(uint32 guestID) const
+{
+    const std::vector<WaitingInvite> waiting = WaitingInvites();
+    for (size_t i = 0; i < waiting.size(); ++i)
+    {
+        if (!waiting[i].steamID && waiting[i].guestID == guestID)
+        {
+            std::map<uint32, std::string>::const_iterator url = m_linkURLs.find(guestID);
+            return url != m_linkURLs.end() ? url->second : std::string();
+        }
+    }
+    return std::string();
+}
+
 void RemotePlayInviteHandler::CancelWaitingInvite(uint64 steamID, uint32 guestID)
 {
     for (size_t i = 0; i < m_invited.size(); ++i)

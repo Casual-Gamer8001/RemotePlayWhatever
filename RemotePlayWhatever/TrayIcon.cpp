@@ -1,4 +1,5 @@
 #include <wx/config.h>
+#include <wx/image.h>
 #include <wx/menu.h>
 #include "Updater.h"
 #include "TrayIcon.h"
@@ -6,6 +7,7 @@
 #include "ControlFrame.h"
 #include "RemotePlayInviteHandler.h"
 #include "UiHelpers.h"
+#include "UiWidgets.h"
 
 enum
 {
@@ -17,6 +19,7 @@ enum
     idTrayUpdate,
     idTrayCheckUpdates,
     idTrayAutoUpdates,
+    idTrayInstallOnLaunch,
     idTrayStartWithWindows,
     idTrayThemeAuto,
     idTrayThemeLight,
@@ -24,13 +27,40 @@ enum
     idTrayQuit,
 };
 
+// The app icon, in every size, with a green dot in the corner.
+static wxBitmapBundle SharingIcon()
+{
+    const wxIconBundle icons = AppIcons();
+    wxVector<wxBitmap> bitmaps;
+    for (size_t i = 0; i < icons.GetIconCount(); ++i)
+    {
+        const wxIcon icon = icons.GetIconByIndex(i);
+        if (!icon.IsOk())
+        {
+            continue;
+        }
+        wxBitmap bitmap;
+        bitmap.CopyFromIcon(icon);
+        wxImage image = bitmap.ConvertToImage();
+        if (!image.IsOk())
+        {
+            continue;
+        }
+        Ui::AddCornerDot(image, wxColour(52, 199, 89));
+        bitmaps.push_back(wxBitmap(image));
+    }
+    return bitmaps.empty() ? wxBitmapBundle() : wxBitmapBundle::FromBitmaps(bitmaps);
+}
+
 RpwTrayIcon::RpwTrayIcon(FriendsListFrame* main, ControlFrame* controls, RemotePlayInviteHandler* handler) :
     m_main(main),
     m_controls(controls),
     m_handler(handler),
-    m_icon(wxBitmapBundle::FromIconBundle(AppIcons()))
+    m_icon(wxBitmapBundle::FromIconBundle(AppIcons())),
+    m_tip("Remote Play Whatever"),
+    m_sharing(false)
 {
-    SetIcon(m_icon, "Remote Play Whatever");
+    ShowIcon();
     Bind(wxEVT_TASKBAR_LEFT_UP, &RpwTrayIcon::OnLeftClick, this);
     Bind(wxEVT_MENU, &RpwTrayIcon::OnMenu, this);
 #if defined(__WXMSW__) && wxUSE_TASKBARICON_BALLOONS
@@ -46,7 +76,27 @@ void RpwTrayIcon::SetStatus(const wxString& status)
     {
         tip = tip.Left(117) + "...";
     }
-    SetIcon(m_icon, tip);
+    m_tip = tip;
+    ShowIcon();
+}
+
+void RpwTrayIcon::SetSharing(bool sharing)
+{
+    if (sharing == m_sharing)
+    {
+        return;
+    }
+    m_sharing = sharing;
+    if (sharing && !m_sharingIcon.IsOk())
+    {
+        m_sharingIcon = SharingIcon();
+    }
+    ShowIcon();
+}
+
+void RpwTrayIcon::ShowIcon()
+{
+    SetIcon(m_sharing && m_sharingIcon.IsOk() ? m_sharingIcon : m_icon, m_tip);
 }
 
 void RpwTrayIcon::ShowHiddenHintOnce()
@@ -118,6 +168,9 @@ wxMenu* RpwTrayIcon::CreatePopupMenu()
         }
         menu->Append(idTrayCheckUpdates, wxString::Format("Check for updates (you have build %ld)", AppUpdater::CurrentBuild()))->Enable(m_main->CanCheckForUpdates());
         menu->AppendCheckItem(idTrayAutoUpdates, "Check for updates automatically")->Check(AppUpdater::AutoChecksEnabled());
+        wxMenuItem* install = menu->AppendCheckItem(idTrayInstallOnLaunch, "Install updates on launch");
+        install->Check(AppUpdater::InstallsOnLaunch());
+        install->Enable(AppUpdater::AutoChecksEnabled());
         menu->AppendSeparator();
     }
 #ifdef __WXMSW__
@@ -173,6 +226,9 @@ void RpwTrayIcon::OnMenu(wxCommandEvent& event)
         break;
     case idTrayAutoUpdates:
         AppUpdater::SetAutoChecksEnabled(!AppUpdater::AutoChecksEnabled());
+        break;
+    case idTrayInstallOnLaunch:
+        AppUpdater::SetInstallsOnLaunch(!AppUpdater::InstallsOnLaunch());
         break;
     case idTrayStartWithWindows:
         SetStartWithWindows(!StartsWithWindows());

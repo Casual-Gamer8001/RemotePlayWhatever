@@ -66,7 +66,8 @@ ControlFrame::ControlFrame(RemotePlayInviteHandler* handler) :
     m_lastGuestCount(0),
     m_pollTicks(0),
     m_waitingForNames(false),
-    m_hotkeysActive(false)
+    m_hotkeysActive(false),
+    m_place(nullptr)
 {
     for (int i = 0; i < 3; ++i)
     {
@@ -133,6 +134,8 @@ ControlFrame::ControlFrame(RemotePlayInviteHandler* handler) :
     SetSizer(frameSizer);
     SetMinSize(FromDIP(wxSize(470, 260)));
     SetSize(FromDIP(wxSize(560, 400)));
+    // Where it was last time and as wide (its height fits the guests).
+    m_place = new WindowPlace(this, "GuestControls", false);
 
     // The Ctrl+Alt shortcuts are registered only while guests are connected
     // (see OnPoll), so the combinations stay free for other apps otherwise.
@@ -150,6 +153,8 @@ ControlFrame::ControlFrame(RemotePlayInviteHandler* handler) :
 
 ControlFrame::~ControlFrame()
 {
+    // Saves where the window was if that changed in the last second.
+    delete m_place;
 #if wxUSE_HOTKEY
     for (size_t i = 0; i < m_hotkeys.size(); ++i)
     {

@@ -3,7 +3,9 @@
 #include <map>
 #include <set>
 #include <wx/wx.h>
+#include <wx/weakref.h>
 #include "FriendPanel.h"
+#include "QrCodeDialog.h"
 #include "RemotePlayInviteHandler.h"
 
 class RpwTrayIcon;
@@ -12,6 +14,7 @@ class Card;
 class FlatButton;
 class SearchBox;
 class StatusDot;
+class WindowPlace;
 class WrapLabel;
 
 // The main window: a menu bar (File, Session, Options, Help), an update bar
@@ -32,6 +35,7 @@ public:
     };
 
     FriendsListFrame(RemotePlayInviteHandler* handler);
+    virtual ~FriendsListFrame();
 
     // Tray icon support: minimizing hides the window to the tray.
     void SetTray(RpwTrayIcon* tray);
@@ -69,6 +73,9 @@ private:
     void RefreshMenus();
     void ShowGuestControls();
     void ShowAbout();
+    // The guest link (the given guest slot's, or the newest unused one) as a
+    // QR code, for someone in the room to scan with their phone.
+    void ShowGuestLinkQrCode(bool anyLink, uint32 guestID = 0);
     // Show or fold away the friends who appear offline (saved).
     void SetShowOffline(bool show);
 
@@ -165,6 +172,9 @@ private:
 
     RpwTrayIcon* m_tray;
     AppUpdater* m_updater;
+    WindowPlace* m_place;           // remembers where the window was
+    wxString m_menuState;           // what the menu bar was last brought up to date for
+    wxWeakRef<QrCodeDialog> m_qrDialog; // the QR code window, while it's open
     wxString m_trayShown;
     wxString m_notice;
     NoticeKind m_noticeKind;

@@ -114,6 +114,10 @@ namespace Ui
     // surface (the colour behind the avatar).
     void DrawAvatar(wxDC& dc, const wxRect& rect, const wxBitmap& roundPicture, const wxString& initials,
                     const wxColour& placeholder, const wxColour& dot, const wxColour& surface);
+    // A dot in the bottom right corner of an icon, with a transparent ring cut
+    // out around it, so it stands out on any background (like the badges
+    // Windows puts on taskbar icons).
+    void AddCornerDot(wxImage& icon, const wxColour& colour);
 
     // Lay out a window whose content changed, and every window it's in (from
     // the top-level window down), so a change in its height moves everything

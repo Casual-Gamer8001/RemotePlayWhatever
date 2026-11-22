@@ -78,6 +78,9 @@ public:
     // The newest guest link (with https://) that nobody has used or
     // cancelled, or empty if there's none.
     std::string GuestLink() const;
+    // The link of the guest link waiting for this guest slot, or empty if
+    // there's none (used, cancelled, or Steam hasn't sent it yet).
+    std::string GuestLinkFor(uint32 guestID) const;
 
     // Invites sent this session that nobody has used yet (a friend who
     // hasn't joined, or a guest link nobody has opened).

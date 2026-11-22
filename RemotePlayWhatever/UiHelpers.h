@@ -2,6 +2,8 @@
 #define UIHELPERS_H
 #include <map>
 #include <wx/iconbndl.h>
+#include <wx/timer.h>
+#include <wx/toplevel.h>
 #include <Steamworks.h>
 
 // The app icon in every size it comes in (from the exe's resources on
@@ -57,5 +59,38 @@ ThemeChoice LoadThemeChoice();
 void SaveThemeChoice(ThemeChoice choice);
 // Switch the windows to the saved choice (for Auto: Windows' current mode).
 void ApplySavedTheme();
+
+// Where a window was and how big, saved under /Windows/<name>. Creating this
+// puts the window back there (unless that's no longer on a screen, say a
+// monitor was unplugged); then its place is saved a second after it moves or
+// changes size, and when this is deleted (with the window: the window owns
+// it). It follows the window while it's on screen and neither minimized nor
+// maximized, so a maximized window keeps the place it goes back to.
+// withHeight: the height (and being maximized) is kept too; false for windows
+// that fit their height to what they show (the guest controls).
+class WindowPlace : public wxTimer
+{
+public:
+    WindowPlace(wxTopLevelWindow* window, const wxString& name, bool withHeight);
+    virtual ~WindowPlace();
+    virtual void Notify() override;
+
+private:
+    void Restore();
+    void OnMove(wxMoveEvent& event);
+    void OnSize(wxSizeEvent& event);
+    void Changed();
+    void Save();
+
+    wxTopLevelWindow* m_window;
+    wxString m_path;
+    bool m_withHeight;
+    int m_x;            // pixels
+    int m_y;
+    int m_width;        // DIPs, so it stays right if the display scale changes
+    int m_height;
+    bool m_maximized;
+    bool m_dirty;
+};
 
 #endif // UIHELPERS_H

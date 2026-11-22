@@ -274,9 +274,9 @@ bool Undo(const std::vector<SwappedFile>& done)
 
 // Start the new version. It waits for this process to exit before it opens
 // (see AppUpdater::WaitForOldCopy), because only one copy may run at a time.
-bool StartNewCopy(const wxString& exe, const wxString& dir)
+bool StartNewCopy(const wxString& exe, const wxString& dir, const wxString& arguments)
 {
-    wxString command = wxString::Format("\"%s\" --updated-from %lu", exe, (unsigned long)::GetCurrentProcessId());
+    wxString command = wxString::Format("\"%s\" --updated-from %lu", exe, (unsigned long)::GetCurrentProcessId()) + arguments;
     std::wstring line = command.ToStdWstring();
     std::vector<wchar_t> buffer(line.begin(), line.end());
     buffer.push_back(L'\0');
@@ -297,7 +297,7 @@ bool StartNewCopy(const wxString& exe, const wxString& dir)
     return true;
 }
 
-bool InstallPackage(const wxString& package, const wxString& sha256, wxString& error)
+bool InstallPackage(const wxString& package, const wxString& sha256, const wxString& arguments, wxString& error)
 {
     wxLogNull quiet;
 
@@ -374,7 +374,7 @@ bool InstallPackage(const wxString& package, const wxString& sha256, wxString& e
     }
     RemoveTree(staging);
 
-    if (!StartNewCopy(Join(dir, exeName), dir))
+    if (!StartNewCopy(Join(dir, exeName), dir, arguments))
     {
         error = Undo(done) ? wxString("Couldn't start the new version, so the old one was put back.")
                            : wxString(kBrokenInstall);
@@ -390,6 +390,8 @@ AppUpdater::AppUpdater(std::function<void()> onChange, std::function<bool()> can
     m_canRestart(canRestart),
     m_state(Idle),
     m_manual(false),
+    m_atLaunch(false),
+    m_checkedOnce(false),
     m_shutdown(false),
     m_availableBuild(0),
     m_timer(this)
@@ -440,6 +442,33 @@ void AppUpdater::SetAutoChecksEnabled(bool enabled)
     }
 }
 
+bool AppUpdater::InstallsOnLaunch()
+{
+    wxConfigBase* config = wxConfigBase::Get();
+    return !config || config->ReadBool("/Options/InstallUpdatesOnLaunch", true);
+}
+
+void AppUpdater::SetInstallsOnLaunch(bool enabled)
+{
+    wxConfigBase* config = wxConfigBase::Get();
+    if (config)
+    {
+        config->Write("/Options/InstallUpdatesOnLaunch", enabled);
+        config->Flush();
+    }
+}
+
+bool AppUpdater::ShouldInstallNow() const
+{
+    if (m_state != Available || !m_atLaunch || m_manual || !InstallsOnLaunch() || m_availableBuild <= CurrentBuild())
+    {
+        return false;
+    }
+    // Installed already, yet this isn't that build: its release must be wrong.
+    wxConfigBase* config = wxConfigBase::Get();
+    return !config || config->ReadLong("/Options/InstalledBuild", 0) != m_availableBuild;
+}
+
 void AppUpdater::StartAutomaticChecks()
 {
     if (Supported() && !m_shutdown)
@@ -456,8 +485,9 @@ void AppUpdater::OnTimer(wxTimerEvent&)
     }
     if (AutoChecksEnabled() && !Busy())
     {
-        Check(false);
+        StartCheck(false, !m_checkedOnce);
     }
+    m_checkedOnce = true;
     m_timer.StartOnce(kCheckEveryMs);
 }
 
@@ -481,6 +511,7 @@ void AppUpdater::Shutdown()
     m_shutdown = true;
     m_onChange = nullptr;
     m_canRestart = nullptr;
+    m_restartArguments = nullptr;
     m_timer.Stop();
 #if RPW_HAS_UPDATER
     if (m_request.IsOk() && m_request.GetState() == wxWebRequest::State_Active)
@@ -491,6 +522,11 @@ void AppUpdater::Shutdown()
 }
 
 void AppUpdater::Check(bool manual)
+{
+    StartCheck(manual, false);
+}
+
+void AppUpdater::StartCheck(bool manual, bool atLaunch)
 {
 #if RPW_HAS_UPDATER
     if (!Supported() || m_shutdown)
@@ -509,6 +545,7 @@ void AppUpdater::Check(bool manual)
         return;
     }
     m_manual = manual;
+    m_atLaunch = atLaunch;
     m_error.clear();
     if (StartRequest(InfoUrl(), StageInfo))
     {
@@ -516,18 +553,19 @@ void AppUpdater::Check(bool manual)
     }
 #else
     wxUnusedVar(manual);
+    wxUnusedVar(atLaunch);
 #endif
 }
 
-void AppUpdater::Install()
+void AppUpdater::Install(bool automatic)
 {
 #if RPW_HAS_UPDATER
     if (!Supported() || m_shutdown || Busy() || m_availableBuild <= CurrentBuild())
     {
         return;
     }
-    // Whatever happens next, the user is waiting to hear about it.
-    m_manual = true;
+    // Clicked: whatever happens next, the user is waiting to hear about it.
+    m_manual = !automatic;
     m_error.clear();
     {
         wxLogNull quiet;
@@ -633,7 +671,7 @@ void AppUpdater::FinishInstall()
     }
     SetState(Installing);
     wxString error;
-    bool ok = InstallPackage(PackagePath(), m_sha256, error);
+    bool ok = InstallPackage(PackagePath(), m_sha256, m_restartArguments ? m_restartArguments() : wxString(), error);
     {
         wxLogNull quiet;
         wxRemoveFile(PackagePath());
@@ -642,6 +680,13 @@ void AppUpdater::FinishInstall()
     {
         Fail(error);
         return;
+    }
+    // The new version is in place and starting (see ShouldInstallNow).
+    wxConfigBase* config = wxConfigBase::Get();
+    if (config)
+    {
+        config->Write("/Options/InstalledBuild", m_availableBuild);
+        config->Flush();
     }
     SetState(Restarting);
 #endif

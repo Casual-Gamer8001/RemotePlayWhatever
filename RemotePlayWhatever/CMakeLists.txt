@@ -105,6 +105,10 @@ set(APPSRCs "RemotePlayWhatever.cpp"
             "Updater.cpp"
             "UpdateNeededDialog.h"
             "UpdateNeededDialog.cpp"
+            "QrCodeDialog.h"
+            "QrCodeDialog.cpp"
+            "qrcodegen.hpp"
+            "qrcodegen.cpp"
 )
 
 

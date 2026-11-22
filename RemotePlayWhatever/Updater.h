@@ -50,6 +50,10 @@ public:
     // "Check for updates automatically" (saved setting, on by default).
     static bool AutoChecksEnabled();
     static void SetAutoChecksEnabled(bool enabled);
+    // "Install updates on launch" (saved setting, on by default): an update
+    // the check right after startup finds is installed straight away.
+    static bool InstallsOnLaunch();
+    static void SetInstallsOnLaunch(bool enabled);
 
     // Check right after startup and then every few hours, while the setting
     // above is on.
@@ -57,8 +61,17 @@ public:
     // Check now. manual = the user asked, so the outcome is worth telling them.
     void Check(bool manual);
     // Download the available update, verify it, put it in place and start it.
-    // Progress and the outcome come through the change callback.
-    void Install();
+    // Progress and the outcome come through the change callback. automatic:
+    // nobody clicked, so a failure needn't be reported (LastCheckWasManual).
+    void Install(bool automatic = false);
+    // The newly found update should install itself: it was found by the check
+    // right after startup, the setting is on, and it isn't a build that was
+    // installed before but didn't start (so a bad release can't make the app
+    // restart over and over).
+    bool ShouldInstallNow() const;
+    // Extra command-line arguments for the new version (asked right before
+    // it's started), e.g. " --minimized" to stay in the tray.
+    void SetRestartArguments(std::function<wxString()> arguments) { m_restartArguments = arguments; }
     // Stop talking to the window (it's closing) and cancel any download.
     void Shutdown();
 
@@ -87,6 +100,7 @@ public:
 private:
     enum Stage { StageInfo, StagePackage };
 
+    void StartCheck(bool manual, bool atLaunch);
     void SetState(State state);
     void Fail(const wxString& error);
     void ReadInfo(const wxString& text);
@@ -95,8 +109,11 @@ private:
 
     std::function<void()> m_onChange;
     std::function<bool()> m_canRestart;
+    std::function<wxString()> m_restartArguments;
     State m_state;
     bool m_manual;
+    bool m_atLaunch;        // the current or last check is the one right after startup
+    bool m_checkedOnce;     // the automatic checks' timer has fired before
     bool m_shutdown;
     wxString m_error;
     long m_availableBuild;

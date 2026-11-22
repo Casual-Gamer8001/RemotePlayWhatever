@@ -16,6 +16,7 @@
 #include "TrayIcon.h"
 #include "UiHelpers.h"
 #include "UiWidgets.h"
+#include "QrCodeDialog.h"
 
 // Hotkey id for Ctrl+Alt+L (the control window's ids start at 0xB001).
 static const int kHotKeyGuestLink = 0xB010;
@@ -30,6 +31,7 @@ enum
 {
     idMenuHideToTray = wxID_HIGHEST + 600,
     idMenuGuestLink,
+    idMenuGuestLinkQr,
     idMenuControls,
     idMenuEndSession,
     idMenuThemeAuto,
@@ -39,6 +41,7 @@ enum
     idMenuSounds,
     idMenuStartWithWindows,
     idMenuAutoUpdates,
+    idMenuInstallOnLaunch,
     idMenuCheckUpdates,
     idMenuReleaseNotes,
     idMenuProjectPage,
@@ -101,6 +104,7 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     m_showOffline(false),
     m_tray(nullptr),
     m_updater(nullptr),
+    m_place(nullptr),
     m_noticeKind(NoticeInfo),
     m_noticeKindShown(NoticeInfo),
     m_noticeUntil(0),
@@ -197,6 +201,8 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     });
     UpdateColumns();
     Layout();
+    // Where it was last time (and as big), if that's still on a screen.
+    m_place = new WindowPlace(this, "Main", true);
 
     Bind(EVT_FRIEND_INVITE, &FriendsListFrame::OnFriendInvite, this);
     Bind(wxEVT_TIMER, &FriendsListFrame::OnTick, this);
@@ -209,8 +215,29 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     // may report back to it, so it stays until the process ends (see OnClose).
     m_updater = new AppUpdater([this]() { OnUpdaterChange(); },
                                [this]() { return !m_pRemoteInvite->IsSessionActive(); });
+    // The new version starts the way this one runs: in the tray if the window
+    // is hidden there, and for the same non-Steam app ID (-a).
+    m_updater->SetRestartArguments([this]()
+    {
+        wxString arguments;
+        if (!IsShown())
+        {
+            arguments += " --minimized";
+        }
+        if (m_pRemoteInvite->GetNonSteamAppID() != 0)
+        {
+            arguments += wxString::Format(" -a %u", (unsigned)m_pRemoteInvite->GetNonSteamAppID());
+        }
+        return arguments;
+    });
     m_updater->StartAutomaticChecks();
     RefreshMenus();
+}
+
+FriendsListFrame::~FriendsListFrame()
+{
+    // Saves where the window was if that changed in the last second.
+    delete m_place;
 }
 
 void FriendsListFrame::BuildMenuBar()
@@ -224,6 +251,7 @@ void FriendsListFrame::BuildMenuBar()
 
     wxMenu* session = new wxMenu;
     session->Append(idMenuGuestLink, "&Create guest link");
+    session->Append(idMenuGuestLinkQr, "Show guest link as a &QR code");
     session->Append(idMenuControls, "Show &guest controls");
     session->AppendSeparator();
     session->Append(idMenuEndSession, "&End session");
@@ -243,6 +271,7 @@ void FriendsListFrame::BuildMenuBar()
     {
         options->AppendSeparator();
         options->AppendCheckItem(idMenuAutoUpdates, "Check for updates &automatically");
+        options->AppendCheckItem(idMenuInstallOnLaunch, "&Install updates on launch");
     }
 
     wxMenu* help = new wxMenu;
@@ -277,6 +306,7 @@ void FriendsListFrame::BuildMenuBar()
     }, idMenuHideToTray);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) { Close(true); }, wxID_EXIT);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) { OnLinkButton(); }, idMenuGuestLink);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) { ShowGuestLinkQrCode(true); }, idMenuGuestLinkQr);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) { ShowGuestControls(); }, idMenuControls);
     Bind(wxEVT_MENU, [this](wxCommandEvent&)
     {
@@ -312,6 +342,11 @@ void FriendsListFrame::BuildMenuBar()
         AppUpdater::SetAutoChecksEnabled(!AppUpdater::AutoChecksEnabled());
         RefreshMenus();
     }, idMenuAutoUpdates);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&)
+    {
+        AppUpdater::SetInstallsOnLaunch(!AppUpdater::InstallsOnLaunch());
+        RefreshMenus();
+    }, idMenuInstallOnLaunch);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) { CheckForUpdates(); }, idMenuCheckUpdates);
     Bind(wxEVT_MENU, [](wxCommandEvent&) { wxLaunchDefaultBrowser(AppUpdater::ReleasesPage()); }, idMenuReleaseNotes);
     Bind(wxEVT_MENU, [](wxCommandEvent&) { wxLaunchDefaultBrowser(AppUpdater::ProjectPage()); }, idMenuProjectPage);
@@ -340,6 +375,7 @@ void FriendsListFrame::RefreshMenus()
         linkItem->SetItemLabel(link);
     }
     bar->Enable(idMenuGuestLink, m_linkRequestedAt == 0);
+    bar->Enable(idMenuGuestLinkQr, session && !m_pRemoteInvite->GuestLink().empty());
     bar->Enable(idMenuEndSession, session);
     bar->Enable(idMenuHideToTray, m_tray && m_tray->IsIconInstalled());
 
@@ -353,6 +389,12 @@ void FriendsListFrame::RefreshMenus()
     if (bar->FindItem(idMenuAutoUpdates))
     {
         bar->Check(idMenuAutoUpdates, AppUpdater::AutoChecksEnabled());
+    }
+    if (bar->FindItem(idMenuInstallOnLaunch))
+    {
+        // Only the check when it starts can find the update to install.
+        bar->Check(idMenuInstallOnLaunch, AppUpdater::InstallsOnLaunch());
+        bar->Enable(idMenuInstallOnLaunch, AppUpdater::AutoChecksEnabled());
     }
     if (bar->FindItem(idMenuCheckUpdates))
     {
@@ -382,8 +424,39 @@ void FriendsListFrame::ShowAbout()
                                     : wxString("Remote Play Whatever (a local build)"),
                           "About Remote Play Whatever", wxOK | wxICON_INFORMATION);
     about.SetExtendedMessage("Steam Remote Play Together for any game.\n\n" + AppUpdater::ProjectPage() +
-                             "\nBased on RemotePlayWhatever by m4dEngi (MIT License).");
+                             "\nBased on RemotePlayWhatever by m4dEngi (MIT License)."
+                             "\nQR codes: QR Code generator library by Project Nayuki (MIT License).");
     about.ShowModal();
+}
+
+void FriendsListFrame::ShowGuestLinkQrCode(bool anyLink, uint32 guestID)
+{
+    // The link shown, and whether it still works: someone may come in with
+    // it, or the session may end, while the code is up.
+    RemotePlayInviteHandler* handler = m_pRemoteInvite;
+    auto current = [handler, anyLink, guestID]()
+    {
+        return wxString::FromUTF8((anyLink ? handler->GuestLink() : handler->GuestLinkFor(guestID)).c_str());
+    };
+    const wxString link = current();
+    if (link.empty())
+    {
+        return;
+    }
+    // One at a time: the one already up for this link comes to the front.
+    if (m_qrDialog && !m_qrDialog->IsClosing())
+    {
+        if (m_qrDialog->GetLink() == link)
+        {
+            m_qrDialog->Raise();
+            return;
+        }
+        m_qrDialog->Close();
+    }
+    // Not modal (and owned by this window, so it goes with it): the app can
+    // still be used, or quit from the tray, while the code is up.
+    m_qrDialog = new QrCodeDialog(this, link, [current, link]() { return current() == link; });
+    m_qrDialog->Show();
 }
 
 void FriendsListFrame::SetShowOffline(bool show)
@@ -879,6 +952,16 @@ void FriendsListFrame::UpdateStatus()
         m_endButton->Show(session);
         relayout = true;
     }
+    // Menu items are greyed or not as the session goes (a menu item's
+    // shortcut, or a command for it, does nothing while it's greyed), not
+    // only when a menu is opened.
+    const wxString menuState = wxString::Format("%d%d%d%d", session, hasLink, creating,
+                                                m_tray && m_tray->IsIconInstalled());
+    if (menuState != m_menuState)
+    {
+        m_menuState = menuState;
+        RefreshMenus();
+    }
     if (RefreshWaitingInvites())
     {
         relayout = true;
@@ -927,6 +1010,11 @@ void FriendsListFrame::UpdateStatus()
         {
             m_tray->SetStatus(trayText);
         }
+    }
+    // A dot on the tray icon while guests can join or see the game.
+    if (m_tray)
+    {
+        m_tray->SetSharing(session);
     }
 
     RefreshInviteStates(hasGame);
@@ -989,7 +1077,10 @@ bool FriendsListFrame::RefreshWaitingInvites()
             label = "Waiting for " + (persona && *persona ? wxString::FromUTF8(persona) : wxString("a friend"));
         }
         labels.push_back(label);
-        shown += wxString::Format("%llu/%u ", (unsigned long long)waiting[i].steamID, (unsigned)waiting[i].guestID) + label + "\n";
+        // (A guest link's row changes once its URL is known: it gets a QR code button.)
+        const bool hasURL = !waiting[i].steamID && !m_pRemoteInvite->GuestLinkFor(waiting[i].guestID).empty();
+        shown += wxString::Format("%llu/%u%s ", (unsigned long long)waiting[i].steamID, (unsigned)waiting[i].guestID,
+                                  hasURL ? "+" : "") + label + "\n";
     }
     if (shown == m_waitingShown)
     {
@@ -1018,6 +1109,18 @@ bool FriendsListFrame::RefreshWaitingInvites()
         text->SetMinSize(wxSize(FromDIP(40), text->GetCharHeight()));
         text->SetToolTip(id ? labels[i] + " to join." : wxString("Nobody has opened this guest link yet."));
         line->Add(text, 1, wxALIGN_CENTER_VERTICAL);
+        // A guest link can also be shown as a QR code, once Steam has sent it.
+        if (!id && !m_pRemoteInvite->GuestLinkFor(guest).empty())
+        {
+            FlatButton* qr = new FlatButton(row, "QR code", FlatButton::Link, 0, true);
+            qr->SetToolTip("Show this link as a QR code, for someone nearby to scan with their phone.");
+            qr->Bind(wxEVT_BUTTON, [this, guest](wxCommandEvent&)
+            {
+                // The rows are rebuilt while the code is up, this button included.
+                CallAfter([this, guest]() { ShowGuestLinkQrCode(false, guest); });
+            });
+            line->Add(qr, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(6));
+        }
         FlatButton* cancel = new FlatButton(row, "Cancel", FlatButton::Link, 0, true);
         cancel->SetToolTip(id ? wxString("Cancel this invite, so it no longer works.")
                               : wxString("Make this guest link stop working."));
@@ -1200,6 +1303,8 @@ void FriendsListFrame::RefreshUpdateButton()
 void FriendsListFrame::OnUpdaterChange()
 {
     RefreshUpdateButton();
+    // Help > Check for updates is greyed while an update downloads.
+    RefreshMenus();
 
     // Dialogs wait until the updater's own event has been handled.
     const bool manual = m_updater->LastCheckWasManual();
@@ -1226,6 +1331,19 @@ void FriendsListFrame::OnUpdaterChange()
                 if (answer == wxYES)
                 {
                     StartUpdate();
+                }
+            });
+        }
+        else if (m_updater->ShouldInstallNow() && !m_pRemoteInvite->IsSessionActive())
+        {
+            // Found right after the app started (Options > Install updates on
+            // launch): install it straight away, quietly. The update bar shows
+            // how it's going; a failure leaves its Update button there.
+            CallAfter([this]()
+            {
+                if (m_updater->GetState() == AppUpdater::Available && !m_pRemoteInvite->IsSessionActive())
+                {
+                    m_updater->Install(true);
                 }
             });
         }
@@ -1264,16 +1382,20 @@ void FriendsListFrame::OnUpdaterChange()
         CallAfter([this]() { Close(true); });
         break;
     case AppUpdater::Postponed:
-        CallAfter([this]()
+        // An update installing itself on launch just waits for the next launch.
+        if (manual)
         {
-            wxMessageBox(
-                "A Remote Play session started while the update was downloading, so it wasn't "
-                "installed.\n\nClick \"Update\" again when the session is over.",
-                "Remote Play Whatever",
-                wxOK | wxICON_INFORMATION,
-                IsShown() ? this : nullptr
-            );
-        });
+            CallAfter([this]()
+            {
+                wxMessageBox(
+                    "A Remote Play session started while the update was downloading, so it wasn't "
+                    "installed.\n\nClick \"Update\" again when the session is over.",
+                    "Remote Play Whatever",
+                    wxOK | wxICON_INFORMATION,
+                    IsShown() ? this : nullptr
+                );
+            });
+        }
         break;
     default:
         break;

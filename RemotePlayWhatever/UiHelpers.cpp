@@ -8,11 +8,13 @@
 #include <wx/bitmap.h>
 #include <wx/config.h>
 #include <wx/datetime.h>
+#include <wx/display.h>
 #include <wx/filefn.h>
 #include <wx/icon.h>
 #include <wx/image.h>
 #include <wx/log.h>
 #include <wx/stdpaths.h>
+#include <wx/timer.h>
 #include <wx/utils.h>
 #ifdef __WXMSW__
 #include <wx/msw/registry.h>
@@ -332,4 +334,130 @@ void ApplySavedTheme()
 {
     const ThemeChoice choice = LoadThemeChoice();
     Ui::ApplyTheme(choice == ThemeDark || (choice == ThemeAuto && Ui::SystemPrefersDark()));
+}
+
+namespace
+{
+// Whether a window at this place could be seen and dragged: enough of its
+// title bar is on one of the screens.
+bool TitleBarOnScreen(const wxRect& place, int titleHeight)
+{
+    const wxRect title(place.x, place.y, place.width, titleHeight);
+    for (unsigned i = 0; i < wxDisplay::GetCount(); ++i)
+    {
+        const wxRect seen = wxDisplay(i).GetClientArea().Intersect(title);
+        if (seen.width >= 80 && seen.height >= titleHeight / 2)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+} // namespace
+
+WindowPlace::WindowPlace(wxTopLevelWindow* window, const wxString& name, bool withHeight) :
+    m_window(window),
+    m_path("/Windows/" + name + "/"),
+    m_withHeight(withHeight),
+    m_x(0),
+    m_y(0),
+    m_width(0),
+    m_height(0),
+    m_maximized(false),
+    m_dirty(false)
+{
+    Restore();
+    // Bound to this object, so they go when it's deleted.
+    m_window->Bind(wxEVT_MOVE, &WindowPlace::OnMove, this);
+    m_window->Bind(wxEVT_SIZE, &WindowPlace::OnSize, this);
+}
+
+WindowPlace::~WindowPlace()
+{
+    Stop();
+    if (m_dirty)
+    {
+        Save();
+    }
+}
+
+void WindowPlace::Notify()
+{
+    Save();
+}
+
+void WindowPlace::Restore()
+{
+    wxConfigBase* config = wxConfigBase::Get();
+    long x = 0, y = 0, width = 0, height = 0;
+    if (!config || !config->Read(m_path + "X", &x) || !config->Read(m_path + "Y", &y) ||
+        !config->Read(m_path + "Width", &width) || width <= 0 ||
+        (m_withHeight && (!config->Read(m_path + "Height", &height) || height <= 0)))
+    {
+        return;
+    }
+    const wxRect place((int)x, (int)y, m_window->FromDIP((int)width),
+                       m_withHeight ? m_window->FromDIP((int)height) : m_window->GetSize().y);
+    if (!TitleBarOnScreen(place, m_window->FromDIP(30)))
+    {
+        return;
+    }
+    m_window->SetSize(place);
+    // A hidden window is maximized when it's shown.
+    if (m_withHeight && config->ReadBool(m_path + "Maximized", false))
+    {
+        m_window->Maximize(true);
+    }
+}
+
+void WindowPlace::OnMove(wxMoveEvent& event)
+{
+    Changed();
+    event.Skip();
+}
+
+void WindowPlace::OnSize(wxSizeEvent& event)
+{
+    Changed();
+    event.Skip();
+}
+
+void WindowPlace::Changed()
+{
+    // Hidden in the tray, or minimized: it's still where it was.
+    if (!m_window->IsShown() || m_window->IsIconized())
+    {
+        return;
+    }
+    m_maximized = m_window->IsMaximized();
+    if (!m_maximized)
+    {
+        const wxRect place = m_window->GetRect();
+        m_x = place.x;
+        m_y = place.y;
+        m_width = m_window->ToDIP(place.width);
+        m_height = m_window->ToDIP(place.height);
+    }
+    m_dirty = true;
+    Start(1000, wxTIMER_ONE_SHOT);
+}
+
+void WindowPlace::Save()
+{
+    m_dirty = false;
+    wxConfigBase* config = wxConfigBase::Get();
+    // Nothing to save until it has been on screen in its normal state.
+    if (!config || m_width <= 0)
+    {
+        return;
+    }
+    config->Write(m_path + "X", (long)m_x);
+    config->Write(m_path + "Y", (long)m_y);
+    config->Write(m_path + "Width", (long)m_width);
+    if (m_withHeight)
+    {
+        config->Write(m_path + "Height", (long)m_height);
+        config->Write(m_path + "Maximized", m_maximized);
+    }
+    config->Flush();
 }

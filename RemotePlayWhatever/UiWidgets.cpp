@@ -653,6 +653,61 @@ wxBitmap Ui::RoundPicture(const wxImage& picture, int size, bool greyed)
     return wxBitmap(image);
 }
 
+void Ui::AddCornerDot(wxImage& icon, const wxColour& colour)
+{
+    if (!icon.IsOk())
+    {
+        return;
+    }
+    if (!icon.HasAlpha())
+    {
+        icon.InitAlpha();
+    }
+    const int width = icon.GetWidth();
+    const int height = icon.GetHeight();
+    const int side = std::min(width, height);
+    // Nearly half the icon wide, touching its bottom right edges; the ring is
+    // a pixel wide at 16 px.
+    const double radius = side * 0.24;
+    const double ring = std::max(1.0, side / 16.0);
+    const double cx = width - radius;
+    const double cy = height - radius;
+    unsigned char* rgb = icon.GetData();
+    unsigned char* alpha = icon.GetAlpha();
+    const int from = std::max(0, (int)std::floor(cx - radius - ring - 1));
+    const int top = std::max(0, (int)std::floor(cy - radius - ring - 1));
+    for (int y = top; y < height; ++y)
+    {
+        for (int x = from; x < width; ++x)
+        {
+            const double dx = x + 0.5 - cx;
+            const double dy = y + 0.5 - cy;
+            const double distance = std::sqrt(dx * dx + dy * dy);
+            const double cut = Coverage(distance, radius + ring);
+            const double dot = Coverage(distance, radius);
+            if (cut <= 0.0)
+            {
+                continue;
+            }
+            const size_t i = (size_t)y * width + x;
+            // What's left of the icon there, then the dot over it.
+            const double below = alpha[i] / 255.0 * (1.0 - cut);
+            const double out = dot + below * (1.0 - dot);
+            if (out <= 0.0)
+            {
+                alpha[i] = 0;
+                continue;
+            }
+            const unsigned char dotRgb[3] = { colour.Red(), colour.Green(), colour.Blue() };
+            for (int c = 0; c < 3; ++c)
+            {
+                rgb[i * 3 + c] = (unsigned char)std::lround((dotRgb[c] * dot + rgb[i * 3 + c] * below * (1.0 - dot)) / out);
+            }
+            alpha[i] = (unsigned char)std::lround(out * 255.0);
+        }
+    }
+}
+
 wxString Ui::Initials(const wxString& name)
 {
     // Letters and digits only, in runs ("Alex Smith" -> "Alex", "Smith").

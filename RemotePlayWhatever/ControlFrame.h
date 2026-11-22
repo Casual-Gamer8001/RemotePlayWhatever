@@ -6,6 +6,7 @@
 
 class AvatarCtrl;
 class FlatButton;
+class WindowPlace;
 class WrapLabel;
 
 // A window that appears when guests connect: a card per guest (avatar, name,
@@ -87,6 +88,7 @@ private:
     std::vector<int> m_hotkeys;
     std::vector<HintKey> m_hintKeys;    // this window's registered shortcuts
     std::vector<HintKey> m_extraHints;  // ones the main window owns
+    WindowPlace* m_place;               // remembers where the window was
 };
 
 #endif // CONTROLFRAME_H
