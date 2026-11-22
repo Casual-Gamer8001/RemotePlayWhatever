@@ -42,6 +42,8 @@ public:
     void SetTray(RpwTrayIcon* tray);
     void ShowFromTray();
     void CopyGuestLink();
+    // The link of a friend's waiting invite, to send it another way.
+    void CopyFriendLink(uint64 steamID);
     void ConfirmEndSession();
 
     // Updating to a newer release (release builds on Windows).

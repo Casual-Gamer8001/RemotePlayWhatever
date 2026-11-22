@@ -115,6 +115,13 @@ bool ClientContext::Init()
     // build before anything calls through the proxy.
     m_remoteManager.Bind(pRemoteManager);
     m_remoteManager.DebugDump(); // no-op unless RPW_VTDEBUG is set
+    clientvt::Log("[rp] ---- RemotePlayWhatever started ----\n"
+                  "[rp] methods: createInvite=%d forOverlayPID=%d localGroup=%d createGroup=%d guestID=%d\n",
+                  (int)m_remoteManager.Has("BCreateRemotePlayInviteAndSession"),
+                  (int)m_remoteManager.Has("GetRemotePlayTogetherGroupIDForOverlayPID"),
+                  (int)m_remoteManager.Has("GetLocalRemotePlayTogetherGroupID"),
+                  (int)m_remoteManager.Has("BCreateRemotePlayGroup"),
+                  (int)m_remoteManager.Has("GetAvailableRemotePlayTogetherGuestID"));
     if (!m_remoteManager.Ok()
         || !m_remoteManager.Has("BCreateRemotePlayInviteAndSession")
         || !m_remoteManager.Has("ShowRemotePlayTogetherUI"))

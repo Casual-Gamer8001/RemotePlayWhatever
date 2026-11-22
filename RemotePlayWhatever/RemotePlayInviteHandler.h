@@ -53,10 +53,13 @@ public:
     // mode sends anyway, like stock RPW did.
     bool HasGroupFailure() const { return m_groupState == GroupFailed && !m_pending.empty(); }
     void ResolveGroupFailure(bool sendAnyway);
+    // Command-line (one-shot) runs set this. They also never disband a group
+    // they find, since the main window's session may be using it.
     void SetAutoFallback(bool sendAnyway) { m_autoFallback = sendAnyway; }
 
-    // Called periodically (from the app callback timer) to re-assert each
-    // guest's desired input state so Steam can't silently reset it.
+    // Each guest's input is applied when they join and whenever the host
+    // changes it. With RPW_REASSERT set, this also applies it again every few
+    // seconds (called from the app callback timer), like older versions did.
     void GrantControlTick();
 
     // --- Session ------------------------------------------------------------
@@ -81,6 +84,10 @@ public:
     // The link of the guest link waiting for this guest slot, or empty if
     // there's none (used, cancelled, or Steam hasn't sent it yet).
     std::string GuestLinkFor(uint32 guestID) const;
+    // The link Steam made for a friend's invite (its own invite card in their
+    // chat is what they normally use), for sending it another way if that
+    // doesn't arrive. Empty once they've joined or the invite is gone.
+    std::string FriendLink(uint64 steamID) const;
 
     // Invites sent this session that nobody has used yet (a friend who
     // hasn't joined, or a guest link nobody has opened).
@@ -128,13 +135,25 @@ private:
     enum EGroupState { GroupNone, GroupWaiting, GroupReady, GroupFailed };
     struct PendingInvite { CSteamID invitee; AppId_t appID; };
 
+    // The group Steam keeps for this host and the session's game, or 0 if
+    // there's none yet.
+    uint32 LiveGroup(class CRemoteClientManagerByName* rcm) const;
+    // Whether Steam has linked the group to the game's process (the overlay
+    // finds the game's group through that link).
+    bool GroupLinkedToGame(class CRemoteClientManagerByName* rcm, uint32 group) const;
+
     bool m_enabledDesktopStreaming;
     uint32 m_remoteGuestID;
     uint32 m_groupID;
+    uint32 m_gamePID;           // the game's overlay process (0: none found)
+    uint64 m_gamePIDGame;       // the game (CGameID) m_gamePID was looked for
+    bool m_gamePIDKnown;        // m_gamePID has been looked for
+    uint32 m_lastLinkedGroup;   // diagnostics: last group Steam linked to it
     AppId_t m_nonsteamAppID;
 
     EGroupState m_groupState;
     AppId_t m_groupAppID;       // the game the current group was set up for
+    bool m_groupForNoGame;      // Steam made no group for the game, so it's the group for no game
     int m_groupTicks;
     bool m_autoFallback;
     std::vector<PendingInvite> m_pending;
@@ -147,6 +166,8 @@ private:
     // slots of links someone has already come in with.
     std::map<uint32, std::string> m_linkURLs;
     std::set<uint32> m_takenLinks;
+    // The link Steam made for each friend's invite, by SteamID.
+    std::map<uint64, std::string> m_friendLinks;
 
     std::vector<ConnectedGuest> m_guests;
     uint32 m_rosterRevision;

@@ -1,16 +1,23 @@
+#include <cstdlib>
 #include <ctime>
 #include <iostream>
 #include "SteamStuff.h"
 #include "RemotePlayInviteHandler.h"
 #include "UiHelpers.h"
+#include "GameProcess.h"
 
 RemotePlayInviteHandler::RemotePlayInviteHandler() :
     m_enabledDesktopStreaming(false),
     m_remoteGuestID(1),
     m_nonsteamAppID(0),
     m_groupID(1),
+    m_gamePID(0),
+    m_gamePIDGame(0),
+    m_gamePIDKnown(false),
+    m_lastLinkedGroup(0),
     m_groupState(GroupNone),
     m_groupAppID(0),
+    m_groupForNoGame(false),
     m_groupTicks(0),
     m_autoFallback(false),
     m_sessionGame(0),
@@ -26,6 +33,30 @@ RemotePlayInviteHandler::RemotePlayInviteHandler() :
 AppId_t RemotePlayInviteHandler::GetNonSteamAppID()
 {
     return m_nonsteamAppID;
+}
+
+uint32 RemotePlayInviteHandler::LiveGroup(CRemoteClientManagerByName* rcm) const
+{
+    // The group Steam keeps for this host and game, or else the one it ties to
+    // the game's process.
+    uint32 g = rcm->GetLocalRemotePlayTogetherGroupID(m_groupAppID);
+    if (!g && m_gamePID)
+    {
+        g = rcm->GetRemotePlayTogetherGroupIDForOverlayPID(m_gamePID);
+    }
+    // A session that had to settle for the group for no game keeps using it.
+    if (!g && m_groupForNoGame)
+    {
+        g = rcm->GetLocalRemotePlayTogetherGroupID(0);
+    }
+    return g;
+}
+
+// Whether Steam returns this group for the game's process, which is how the
+// overlay finds the group whose players it lists.
+bool RemotePlayInviteHandler::GroupLinkedToGame(CRemoteClientManagerByName* rcm, uint32 group) const
+{
+    return !m_gamePID || rcm->GetRemotePlayTogetherGroupIDForOverlayPID(m_gamePID) == group;
 }
 
 // Queue an invite and kick off async group creation. The actual Steam invite is
@@ -59,12 +90,33 @@ void RemotePlayInviteHandler::SendInvite(CSteamID invitee)
 
     CRemoteClientManagerByName* rcm = GClientContext()->RemoteClientManager();
 
+    // The game's process, which Steam's overlay looks its group up by (a second
+    // way to find the group, and for diagnostics). Finding it reads every
+    // process's module list (about a quarter of a second), so it's looked for
+    // once per game, and again only if that process has gone.
+    if (!m_gamePIDKnown || m_gamePIDGame != gameID.ToUint64() || (m_gamePID && !ProcessStillRunning(m_gamePID)))
+    {
+        m_gamePID = FindGameOverlayPID();
+        m_gamePIDGame = gameID.ToUint64();
+        m_gamePIDKnown = true;
+    }
+    if (clientvt::DebugEnabled())
+    {
+        clientvt::Log("[rp] invite requested: invitee=%llu friend=%d game=%llu app=%u desktop=%d overlayPID=%u"
+                      " | groups: forOverlayPID=%u local(0)=%u local(app)=%u\n",
+                      (unsigned long long)invitee.ConvertToUint64(), (int)(invitee.GetAccountID() != 0),
+                      (unsigned long long)gameID.ToUint64(), (unsigned)appID, (int)desktop, m_gamePID,
+                      m_gamePID ? rcm->GetRemotePlayTogetherGroupIDForOverlayPID(m_gamePID) : 0,
+                      rcm->GetLocalRemotePlayTogetherGroupID(0),
+                      appID ? rcm->GetLocalRemotePlayTogetherGroupID(appID) : 0);
+    }
+
     // A group from an earlier invite can be gone by now (everyone left, or the
     // game was restarted or switched). Check it again instead of inviting into
     // a group that no longer exists, which leaves guests only able to watch.
     if (m_groupState == GroupReady || m_groupState == GroupFailed)
     {
-        uint32 live = rcm->GetLocalRemotePlayTogetherGroupID();
+        uint32 live = LiveGroup(rcm);
         if (live && appID == m_groupAppID)
         {
             m_groupID = live;
@@ -84,18 +136,52 @@ void RemotePlayInviteHandler::SendInvite(CSteamID invitee)
     if (m_groupState == GroupNone)
     {
         m_groupAppID = appID;
-        uint32 g = rcm->GetLocalRemotePlayTogetherGroupID();
-        if (g)
+        m_groupForNoGame = false;
+        // Only the game's own group will do: in a group for another game (or
+        // for none, which is what asking for game 0 gives) a guest's mouse
+        // movement never reaches the game.
+        uint32 leftover = LiveGroup(rcm);
+        // A Steam game's session can also find the group for no game left over.
+        uint32 leftoverNoGame = appID ? rcm->GetLocalRemotePlayTogetherGroupID(0) : 0;
+        if (leftoverNoGame == leftover)
         {
-            m_groupID = g;
-            m_groupState = GroupReady;      // reuse an already-hosted group
+            leftoverNoGame = 0;
+        }
+        // Someone may be in a group this copy of the app knows nothing about:
+        // guests who stayed after the app was closed and opened again, people
+        // invited through Steam itself, or the main window's session while this
+        // is a command-line run. Steam's streams say so; then it's kept.
+        const bool inUse = !m_guests.empty() || !m_invited.empty() || m_autoFallback ||
+                           rcm->BIsStreamingSessionActive();
+        if (leftover && inUse)
+        {
+            m_groupID = leftover;
+            m_groupState = GroupReady;
+            clientvt::Log("[rp] reusing group %u (in use)\n", leftover);
         }
         else
         {
+            // A new session gets a freshly created group. A guest who joined a
+            // group left over from an earlier session couldn't move the mouse
+            // (keyboard and clicks still worked), so it's disbanded first.
+            if (!inUse)
+            {
+                const uint32 old[] = { leftover, leftoverNoGame };
+                for (size_t i = 0; i < sizeof(old) / sizeof(old[0]); ++i)
+                {
+                    if (old[i])
+                    {
+                        rcm->DisbandRemotePlayTogetherGroup(old[i]);
+                        clientvt::Log("[rp] disbanded leftover group %u\n", old[i]);
+                    }
+                }
+            }
             if (appID)
             {
                 rcm->ShowRemotePlayTogetherUI(appID);
             }
+            bool created = rcm->BCreateRemotePlayGroup(appID);
+            clientvt::Log("[rp] BCreateRemotePlayGroup(app %u) -> %d\n", (unsigned)appID, (int)created);
             m_groupState = GroupWaiting;
             m_groupTicks = 0;
         }
@@ -106,23 +192,58 @@ void RemotePlayInviteHandler::SendInvite(CSteamID invitee)
 // Drives async group creation and flushes queued invites. Runs every ~200ms.
 void RemotePlayInviteHandler::GroupTick()
 {
+    if (clientvt::DebugEnabled() && m_gamePID && m_sessionGame)
+    {
+        // Diagnostics: when Steam links (or unlinks) a group to the game's
+        // process. The overlay's player list depends on that link.
+        uint32 linked = GClientContext()->RemoteClientManager()->GetRemotePlayTogetherGroupIDForOverlayPID(m_gamePID);
+        if (linked != m_lastLinkedGroup)
+        {
+            clientvt::Log("[rp] group linked to game pid %u: %u -> %u\n", m_gamePID, m_lastLinkedGroup, linked);
+            m_lastLinkedGroup = linked;
+        }
+    }
+
     if (m_groupState == GroupWaiting)
     {
         CRemoteClientManagerByName* rcm = GClientContext()->RemoteClientManager();
-        uint32 g = rcm->GetLocalRemotePlayTogetherGroupID();  // polling settles it
+        // Polling settles it. The game's own group is wanted; after ~3s with no
+        // group at all, settle for the group for no game, like before (guests
+        // can join it, but it's outside the overlay's menu).
+        uint32 g = LiveGroup(rcm);
+        const bool tiedToGame = g != 0;
+        const bool linked = g && GroupLinkedToGame(rcm, g);
+        if (!g && m_groupAppID && m_groupTicks >= 15)
+        {
+            g = rcm->GetLocalRemotePlayTogetherGroupID(0);
+            m_groupForNoGame = g != 0;
+        }
         if (g)
         {
+            clientvt::Log("[rp] group ready after %d ticks: group=%u tiedToGame=%d linkedToProcess=%d"
+                          " (local(app)=%u forOverlayPID=%u local(0)=%u)\n",
+                          m_groupTicks, g, (int)tiedToGame, (int)linked,
+                          rcm->GetLocalRemotePlayTogetherGroupID(m_groupAppID),
+                          m_gamePID ? rcm->GetRemotePlayTogetherGroupIDForOverlayPID(m_gamePID) : 0,
+                          rcm->GetLocalRemotePlayTogetherGroupID(0));
             m_groupID = g;
             m_groupState = GroupReady;
         }
         else
         {
             ++m_groupTicks;
-            // Give Steam ~2.4s to set the group up after showing its UI, then
-            // ask it to create one, and ask again at ~5s in case it didn't.
-            if (m_groupTicks == 12 || m_groupTicks == 25)
+            // Ask Steam again in case the first request didn't take.
+            if (m_groupTicks == 5 || m_groupTicks == 12)
             {
-                rcm->BCreateRemotePlayGroup();
+                bool created = rcm->BCreateRemotePlayGroup(m_groupAppID);
+                clientvt::Log("[rp] BCreateRemotePlayGroup(app %u) -> %d\n", (unsigned)m_groupAppID, (int)created);
+            }
+            // Still no group for the game: ask for the group for no game, which
+            // the session settles for (see above), like before.
+            if (m_groupAppID && (m_groupTicks == 15 || m_groupTicks == 25))
+            {
+                bool created = rcm->BCreateRemotePlayGroup(0);
+                clientvt::Log("[rp] BCreateRemotePlayGroup(app 0) -> %d\n", (int)created);
             }
             if (m_groupTicks >= 50)                        // ~10s and still no group
             {
@@ -143,16 +264,27 @@ void RemotePlayInviteHandler::GroupTick()
         bool refused = false;
         for (size_t i = 0; i < m_pending.size(); ++i)
         {
-            uint32 guest = rcm->GetAvailableRemotePlayTogetherGuestID(m_groupID);
-            if (!guest)
+            // Steam's own UI invites a friend with guest id 0 and only gives
+            // guest links a guest id. With a guest id, Steam treats a friend's
+            // invite as a guest link too: it only hands back a URL (no invite
+            // card in their chat) and they join as "Guest N", outside the
+            // overlay's player list.
+            const bool isFriend = m_pending[i].invitee.GetAccountID() != 0;
+            uint32 guest = 0;
+            if (!isFriend)
             {
-                guest = m_remoteGuestID;
+                guest = rcm->GetAvailableRemotePlayTogetherGuestID(m_groupID);
+                if (!guest)
+                {
+                    guest = m_remoteGuestID;
+                }
+                m_remoteGuestID = guest + 1;
             }
-            m_remoteGuestID = guest + 1;
 
             RemotePlayPlayer_t rppInvitee = { m_pending[i].invitee, guest, m_groupID, 0, 0, 0 };
             bool sent = rcm->BCreateRemotePlayInviteAndSession(rppInvitee, m_pending[i].appID);
-            clientvt::Log("[rp] invite %s: steam=%llu guest=%u group=%u app=%u\n", sent ? "sent" : "refused by Steam",
+            clientvt::Log("[rp] invite %s: friend=%d steam=%llu guest=%u group=%u app=%u\n",
+                          sent ? "sent" : "refused by Steam", (int)isFriend,
                           (unsigned long long)rppInvitee.m_playerID.ConvertToUint64(), guest, m_groupID,
                           (unsigned)m_pending[i].appID);
             if (sent)
@@ -232,11 +364,13 @@ void RemotePlayInviteHandler::ResetSession()
     m_sessionGameGoneTicks = 0;
     m_remoteGuestID = 1;
     m_groupState = GroupNone;
+    m_groupForNoGame = false;
     m_pending.clear();
     m_invited.clear();
     m_guests.clear();
     m_linkURLs.clear();
     m_takenLinks.clear();
+    m_friendLinks.clear();
     ++m_rosterRevision;
 }
 
@@ -271,6 +405,10 @@ void RemotePlayInviteHandler::RemoveGuest(uint64 key)
                 rcm->CancelRemotePlayInviteAndSession(sent);
                 m_linkURLs.erase(sent.m_unGuestID);
                 m_takenLinks.erase(sent.m_unGuestID);
+                if (!theirLink)
+                {
+                    m_friendLinks.erase(g.steamID);
+                }
                 m_invited.erase(m_invited.begin() + j);
             }
             else
@@ -295,7 +433,10 @@ std::vector<RemotePlayInviteHandler::WaitingInvite> RemotePlayInviteHandler::Wai
         bool used = !friendID && m_takenLinks.count(sent.m_unGuestID) != 0;
         for (size_t g = 0; g < m_guests.size() && !used; ++g)
         {
-            used = m_guests[g].player.m_unGuestID == sent.m_unGuestID || (friendID && m_guests[g].steamID == friendID);
+            // Friends are invited with guest id 0, so only a guest link's slot
+            // identifies who it was for.
+            used = (sent.m_unGuestID && m_guests[g].player.m_unGuestID == sent.m_unGuestID) ||
+                   (friendID && m_guests[g].steamID == friendID);
         }
         if (!used)
         {
@@ -339,6 +480,24 @@ std::string RemotePlayInviteHandler::GuestLinkFor(uint32 guestID) const
     return std::string();
 }
 
+std::string RemotePlayInviteHandler::FriendLink(uint64 steamID) const
+{
+    std::map<uint64, std::string>::const_iterator url = m_friendLinks.find(steamID);
+    if (!steamID || url == m_friendLinks.end())
+    {
+        return std::string();
+    }
+    const std::vector<WaitingInvite> waiting = WaitingInvites();
+    for (size_t i = 0; i < waiting.size(); ++i)
+    {
+        if (waiting[i].steamID == steamID)
+        {
+            return url->second;
+        }
+    }
+    return std::string();
+}
+
 void RemotePlayInviteHandler::CancelWaitingInvite(uint64 steamID, uint32 guestID)
 {
     for (size_t i = 0; i < m_invited.size(); ++i)
@@ -354,6 +513,10 @@ void RemotePlayInviteHandler::CancelWaitingInvite(uint64 steamID, uint32 guestID
         m_invited.erase(m_invited.begin() + i);
         m_linkURLs.erase(sent.m_unGuestID);
         m_takenLinks.erase(sent.m_unGuestID);
+        if (!link)
+        {
+            m_friendLinks.erase(steamID);
+        }
         ++m_rosterRevision;
 
         std::string notice = link ? "Guest link cancelled." : "Invite cancelled.";
@@ -441,6 +604,9 @@ void RemotePlayInviteHandler::SetGuestID(uint32 guestID)
 // only way to hand a guest control (they never appear in the overlay list).
 void RemotePlayInviteHandler::ApplyGuest(const ConnectedGuest& g)
 {
+    clientvt::Log("[rp] set input: steam=%llu guest=%u group=%u kbd=%d mouse=%d ctrl=%d\n",
+                  (unsigned long long)g.player.m_playerID.ConvertToUint64(), g.player.m_unGuestID,
+                  g.player.m_unOverlayPIDGroupID, (int)g.wantKbd, (int)g.wantMouse, (int)g.wantCtrl);
     CRemoteClientManagerByName* rcm = GClientContext()->RemoteClientManager();
     rcm->SetPerUserKeyboardInputEnabled(g.player, g.wantKbd);
     rcm->SetPerUserMouseInputEnabled(g.player, g.wantMouse);
@@ -449,6 +615,16 @@ void RemotePlayInviteHandler::ApplyGuest(const ConnectedGuest& g)
 
 void RemotePlayInviteHandler::GrantControlTick()
 {
+    // Each guest's input is applied when they join and whenever the host
+    // changes it. With friends joining the game's own group, that held for
+    // the whole session in the Rammy-3 fork's tests, so it isn't applied again
+    // every few seconds any more (which could also undo changes made in
+    // Steam's own menu). Set RPW_REASSERT=1 for the old behaviour.
+    static const bool reassert = std::getenv("RPW_REASSERT") != NULL;
+    if (!reassert)
+    {
+        return;
+    }
     for (size_t i = 0; i < m_guests.size(); ++i)
     {
         ApplyGuest(m_guests[i]);
@@ -642,12 +818,31 @@ void RemotePlayInviteHandler::OnRemotePlayStart(RemoteClientStartStreamSession_t
 
 void RemotePlayInviteHandler::OnRemotePlayInviteResult(RemotePlayInviteResult_t* inviteResultCb)
 {
+    clientvt::Log("[rp] invite result: result=%d steam=%llu guest=%u group=%u url=%s\n",
+                  (int)inviteResultCb->m_eResult,
+                  (unsigned long long)inviteResultCb->m_player.m_playerID.ConvertToUint64(),
+                  inviteResultCb->m_player.m_unGuestID, inviteResultCb->m_player.m_unOverlayPIDGroupID,
+                  inviteResultCb->m_szConnectURL);
+
     if (inviteResultCb->m_eResult == k_ERemoteClientLaunchResultOK)
     {
         if (inviteResultCb->m_player.m_playerID.IsValid())
         {
-            std::string msg = "Follow this link to join remote game: " + ClickableURL(inviteResultCb->m_szConnectURL);
-            GClientContext()->SteamFriends()->ReplyToFriendMessage(inviteResultCb->m_player.m_playerID, msg.c_str());
+            // Steam sends a friend its own invite (in their chat), so a link of
+            // ours would only be a second, worse invite. The link is kept for
+            // the host to send another way if Steam's doesn't arrive. Set
+            // RPW_SEND_LINK=1 to message the link as well, like before.
+            const std::string link = ClickableURL(inviteResultCb->m_szConnectURL);
+            if (!link.empty())
+            {
+                m_friendLinks[inviteResultCb->m_player.m_playerID.ConvertToUint64()] = link;
+                ++m_rosterRevision;
+            }
+            if (std::getenv("RPW_SEND_LINK") != NULL)
+            {
+                std::string msg = "Follow this link to join remote game: " + link;
+                GClientContext()->SteamFriends()->ReplyToFriendMessage(inviteResultCb->m_player.m_playerID, msg.c_str());
+            }
         }
         else
         {
@@ -680,13 +875,21 @@ void RemotePlayInviteHandler::OnRemotePlayInviteResult(RemotePlayInviteResult_t*
     }
     else
     {
-        // A failed or declined invite isn't part of the session any more.
+        // A failed or declined invite isn't part of the session any more. A
+        // friend's invite is theirs by SteamID (it has no guest slot of its
+        // own); a guest link is known by its slot.
         for (size_t i = 0; i < m_invited.size(); ++i)
         {
             const RemotePlayPlayer_t& sent = m_invited[i];
+            const bool friendInvite = sent.m_playerID.GetAccountID() != 0;
             if (sent.m_playerID == inviteResultCb->m_player.m_playerID &&
-                (sent.m_unGuestID == inviteResultCb->m_player.m_unGuestID || inviteResultCb->m_player.m_unGuestID == 0))
+                (friendInvite || sent.m_unGuestID == inviteResultCb->m_player.m_unGuestID ||
+                 inviteResultCb->m_player.m_unGuestID == 0))
             {
+                if (friendInvite)
+                {
+                    m_friendLinks.erase(sent.m_playerID.ConvertToUint64());
+                }
                 m_invited.erase(m_invited.begin() + i);
                 ++m_rosterRevision;
                 break;

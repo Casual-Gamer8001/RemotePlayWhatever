@@ -74,14 +74,27 @@ public:
     // On drifted builds the guest never appears in the Steam overlay player
     // list, so granting control through the overlay is impossible; the only
     // way to give a guest input is to enable it per-user programmatically.
-    uint32 GetLocalRemotePlayTogetherGroupID()
+    //
+    // Steam keeps one Remote Play Together group per host and game. Creating
+    // and looking up "the local group" both take the game as a 32-bit ID (the
+    // app ID for a Steam game); 0 is a group for no game at all, where a
+    // guest's mouse movement never reaches the game (found by the Rammy-3
+    // fork). The ForOverlayPID lookup takes a process ID and returns the group
+    // of the game it runs. Each of these takes one 4-byte argument (checked in
+    // steamclient64.dll 11.23.65.88's IClientRemoteClientManager stubs).
+    uint32 GetLocalRemotePlayTogetherGroupID(uint32 app = 0)
     {
         return Has("GetLocalRemotePlayTogetherGroupID") ?
-               Invoke<uint32>("GetLocalRemotePlayTogetherGroupID", (int32)0) : 0;
+               Invoke<uint32>("GetLocalRemotePlayTogetherGroupID", app) : 0;
     }
-    bool BCreateRemotePlayGroup()
+    uint32 GetRemotePlayTogetherGroupIDForOverlayPID(uint32 pid)
     {
-        return Has("BCreateRemotePlayGroup") && Invoke<bool>("BCreateRemotePlayGroup", (void*)0);
+        return Has("GetRemotePlayTogetherGroupIDForOverlayPID") ?
+               Invoke<uint32>("GetRemotePlayTogetherGroupIDForOverlayPID", pid) : 0;
+    }
+    bool BCreateRemotePlayGroup(uint32 app = 0)
+    {
+        return Has("BCreateRemotePlayGroup") && Invoke<bool>("BCreateRemotePlayGroup", app);
     }
     uint32 GetAvailableRemotePlayTogetherGuestID(uint32 group)
     {

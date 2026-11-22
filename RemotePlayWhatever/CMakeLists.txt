@@ -122,6 +122,8 @@ set(APPSRCs "RemotePlayWhatever.cpp"
             "QrCodeDialog.cpp"
             "qrcodegen.hpp"
             "qrcodegen.cpp"
+            "GameProcess.h"
+            "GameProcess.cpp"
 )
 
 

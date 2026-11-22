@@ -1448,8 +1448,10 @@ bool FriendsListFrame::RefreshWaitingInvites()
             label = "Waiting for " + (persona && *persona ? wxString::FromUTF8(persona) : wxString("a friend"));
         }
         labels.push_back(label);
-        // (A guest link's row changes once its URL is known: it gets a QR code button.)
-        const bool hasURL = !waiting[i].steamID && !m_pRemoteInvite->GuestLinkFor(waiting[i].guestID).empty();
+        // (A row changes once its link is known: a guest link gets a QR code
+        // button, a friend's invite a Copy link button.)
+        const bool hasURL = waiting[i].steamID ? !m_pRemoteInvite->FriendLink(waiting[i].steamID).empty()
+                                               : !m_pRemoteInvite->GuestLinkFor(waiting[i].guestID).empty();
         shown += wxString::Format("%llu/%u%s ", (unsigned long long)waiting[i].steamID, (unsigned)waiting[i].guestID,
                                   hasURL ? "+" : "") + label + "\n";
     }
@@ -1492,6 +1494,18 @@ bool FriendsListFrame::RefreshWaitingInvites()
             });
             line->Add(qr, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(6));
         }
+        // A friend's invite is Steam's own, in their chat; its link can be sent
+        // another way in case that doesn't arrive.
+        if (id && !m_pRemoteInvite->FriendLink(id).empty())
+        {
+            FlatButton* copy = new FlatButton(row, "Copy link", FlatButton::Link, 0, true);
+            copy->SetToolTip("Copy a link to this invite, to send it another way in case Steam's invite doesn't reach them.");
+            copy->Bind(wxEVT_BUTTON, [this, id](wxCommandEvent&)
+            {
+                CopyFriendLink(id);
+            });
+            line->Add(copy, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(6));
+        }
         FlatButton* cancel = new FlatButton(row, "Cancel", FlatButton::Link, 0, true);
         cancel->SetToolTip(id ? wxString("Cancel this invite, so it no longer works.")
                               : wxString("Make this guest link stop working."));
@@ -1517,6 +1531,24 @@ bool FriendsListFrame::RefreshWaitingInvites()
         m_waitingSizer->Add(more, 0, wxTOP, FromDIP(6));
     }
     return true;
+}
+
+void FriendsListFrame::CopyFriendLink(uint64 steamID)
+{
+    const wxString link = wxString::FromUTF8(m_pRemoteInvite->FriendLink(steamID).c_str());
+    if (link.empty() || !wxTheClipboard->Open())
+    {
+        return;
+    }
+    const bool copied = wxTheClipboard->SetData(new wxTextDataObject(link));
+    wxTheClipboard->Flush();
+    wxTheClipboard->Close();
+    if (copied)
+    {
+        const char* persona = GClientContext()->SteamFriends()->GetFriendPersonaName(CSteamID(steamID));
+        const wxString name = wxString::FromUTF8(persona && *persona ? persona : "your friend");
+        ShowNotice("Link copied. Send it to " + name + " another way if Steam's invite doesn't reach them.");
+    }
 }
 
 void FriendsListFrame::CopyGuestLink()
@@ -2073,7 +2105,7 @@ void FriendsListFrame::OnRemotePlayInviteResult(RemotePlayInviteResult_t* invite
         std::map<uint64, FriendPanel*>::const_iterator panel = m_friendPanels.find(id);
         const bool offline = panel != m_friendPanels.end() && !panel->second->IsOnline();
         ShowNotice(offline ? "Invite sent to " + name + ". They appear offline; it waits for them in Steam chat."
-                           : "Invite sent to " + name + ". They'll get the link in Steam chat.");
+                           : "Invite sent to " + name + ". Steam shows it in their chat.");
         return;
     }
 
