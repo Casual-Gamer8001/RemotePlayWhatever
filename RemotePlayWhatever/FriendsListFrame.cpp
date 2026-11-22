@@ -1872,6 +1872,9 @@ static wxString DescribeLaunchResult(ERemoteClientLaunchResult result)
     case k_ERemoteClientLaunchResultBusy:               return "Steam is busy with another stream.";
     case k_ERemoteClientLaunchResultDriversNotInstalled:return "Steam's streaming drivers aren't installed.";
     case k_ERemoteClientLaunchResultCanceled:           return "The invite was canceled.";
+    case k_ERemoteClientLaunchResultInvisible:          return "Steam doesn't send Remote Play Together invites while you're Invisible. "
+                                                               "Set your Steam status to Online, or use a guest link.";
+    case k_ERemoteClientLaunchResultRestrictedCountry:  return "Steam says Remote Play Together isn't available in your friend's country.";
     default:                                            return "Steam couldn't start the session.";
     }
 }
