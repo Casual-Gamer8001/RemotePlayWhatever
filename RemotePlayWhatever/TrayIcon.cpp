@@ -182,7 +182,11 @@ wxMenu* RpwTrayIcon::CreatePopupMenu()
     // Light or dark, or the same as Windows (the default).
     wxMenu* theme = new wxMenu;
     const ThemeChoice choice = LoadThemeChoice();
+#ifdef __WXMSW__
     theme->AppendRadioItem(idTrayThemeAuto, "Match Windows")->Check(choice == ThemeAuto);
+#else
+    theme->AppendRadioItem(idTrayThemeAuto, "Match the system")->Check(choice == ThemeAuto);
+#endif
     theme->AppendRadioItem(idTrayThemeLight, "Light")->Check(choice == ThemeLight);
     theme->AppendRadioItem(idTrayThemeDark, "Dark")->Check(choice == ThemeDark);
     menu->AppendSubMenu(theme, "Theme");

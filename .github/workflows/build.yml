@@ -1,12 +1,14 @@
 name: Build
 
-# Every push builds a 64-bit Windows package. Pushes to master publish it as
-# the latest release; pushes to other branches replace that branch's test
-# (pre-release) build, tagged branch-<name>. Each release also gets an
+# Every push builds a 64-bit Windows package, a Linux AppImage (also for the
+# Steam Deck) and a Mac app. Pushes to master publish them as the latest
+# release; pushes to other branches replace that branch's test (pre-release)
+# build, tagged branch-<name>. The Windows job creates the release, with an
 # update.txt (build number, tag, package name, SHA-256 and up to ten "note="
 # lines with the commit titles since the previous release, oldest first),
-# which the app reads to offer updates. A Linux job checks that the code still
-# compiles there too.
+# which the Windows app reads to offer updates. The Linux and Mac jobs then
+# add their downloads to that release, so the Windows build is published even
+# if one of them fails.
 
 on:
   push:
@@ -23,10 +25,15 @@ concurrency:
 env:
   WX_VERSION: 3.2.12
   PACKAGE: RemotePlayWhatever-win64.zip
+  LINUX_PACKAGE: RemotePlayWhatever-linux-x86_64.AppImage
+  MAC_PACKAGE: RemotePlayWhatever-macos.zip
 
 jobs:
   windows:
     runs-on: windows-2022
+    outputs:
+      # The release the Linux and Mac jobs add their downloads to.
+      tag: ${{ steps.publish.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -108,6 +115,7 @@ jobs:
           path: ${{ env.PACKAGE }}
 
       - name: Publish release
+        id: publish
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -130,30 +138,317 @@ jobs:
           foreach ($n in $notes) { $info += "note=$n`n" }
           $info | Set-Content -Path update.txt -NoNewline -Encoding ascii
           $changes = if ($notes) { "`n`nChanges since $(if ($previous) { $previous } else { 'the last build' }):`n" + (($notes | ForEach-Object { "- $_" }) -join "`n") } else { '' }
+          # The Linux and Mac jobs add theirs to the release once it's there.
+          $downloads = "`n`nDownloads: Windows - $env:PACKAGE; Linux and Steam Deck - $env:LINUX_PACKAGE; macOS - $env:MAC_PACKAGE"
           if ($env:GITHUB_REF_NAME -eq 'master') {
             gh release create $tag $env:PACKAGE update.txt --target $env:GITHUB_SHA --latest `
               --title "RemotePlayWhatever build $env:GITHUB_RUN_NUMBER ($short)" `
-              --notes "Built from master at $env:GITHUB_SHA.$changes"
+              --notes "Built from master at $env:GITHUB_SHA.$downloads$changes"
           } else {
             gh release delete $tag --cleanup-tag --yes 2>$null
             $global:LASTEXITCODE = 0
             gh release create $tag $env:PACKAGE update.txt --target $env:GITHUB_SHA --prerelease --latest=false `
               --title "Test build: $env:GITHUB_REF_NAME ($short)" `
-              --notes "Test build of branch $env:GITHUB_REF_NAME at $env:GITHUB_SHA. Not for everyday use.`n`nLatest change: $subject$changes"
+              --notes "Test build of branch $env:GITHUB_REF_NAME at $env:GITHUB_SHA. Not for everyday use.$downloads`n`nLatest change: $subject$changes"
           }
           if ($LASTEXITCODE) { throw 'Publishing the release failed' }
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "tag=$tag"
 
   linux:
-    runs-on: ubuntu-24.04
+    # An AppImage for the Steam Deck and other 64-bit Linux PCs. Built on
+    # Ubuntu 22.04 so it runs wherever glibc is 2.35 or newer (SteamOS 3 has
+    # newer). wxWidgets is linked in and GTK 3 is bundled, since SteamOS's
+    # system files are read-only.
+    needs: windows
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y build-essential cmake libwxgtk3.2-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake pkg-config patchelf file \
+            desktop-file-utils libgtk-3-dev librsvg2-common libpng-dev libjpeg-dev zlib1g-dev libexpat1-dev \
+            xvfb xauth x11-utils imagemagick fonts-dejavu-core
+
+      - name: Restore wxWidgets
+        id: wx-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/wx
+          key: wx-${{ env.WX_VERSION }}-gtk3-static-ubuntu-22.04-v1
+
+      - name: Build wxWidgets (static, GTK 3)
+        if: steps.wx-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o wx.tar.bz2 "https://github.com/wxWidgets/wxWidgets/releases/download/v$WX_VERSION/wxWidgets-$WX_VERSION.tar.bz2"
+          tar xjf wx.tar.bz2
+          mkdir wx-build
+          cd wx-build
+          "../wxWidgets-$WX_VERSION/configure" --prefix="$HOME/wx" --disable-shared --enable-unicode --with-gtk=3 \
+            --with-libpng=sys --with-libjpeg=sys --with-zlib=sys --with-expat=sys --with-regex=builtin \
+            --without-libtiff --without-liblzma --without-libnotify --without-libcurl --without-opengl \
+            --without-sdl --without-libmspack --disable-webrequest --disable-webview --disable-mediactrl \
+            --disable-secretstore --disable-uiactionsim
+          make -j"$(nproc)"
+          make install
+
+      # Saved straight away, so a later failing step doesn't mean building it again.
+      - name: Save wxWidgets
+        if: steps.wx-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/wx
+          key: ${{ steps.wx-cache.outputs.cache-primary-key }}
 
       - name: Build
         run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release "-DwxWidgets_CONFIG_EXECUTABLE=$HOME/wx/bin/wx-config" \
+            "-DRPW_BUILD_NUMBER=$GITHUB_RUN_NUMBER" "-DRPW_UPDATE_REPO=$GITHUB_REPOSITORY"
           cmake --build build -j "$(nproc)"
+
+      - name: Make the AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: 1
+          DEPLOY_GTK_VERSION: 3
+          LDAI_OUTPUT: ${{ env.LINUX_PACKAGE }}
+          OUTPUT: ${{ env.LINUX_PACKAGE }}
+        run: |
+          mkdir -p tools
+          curl -fsSL -o tools/linuxdeploy-x86_64.AppImage https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          curl -fsSL -o tools/linuxdeploy-plugin-gtk.sh https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh
+          chmod +x tools/linuxdeploy-x86_64.AppImage tools/linuxdeploy-plugin-gtk.sh
+          export PATH="$PWD/tools:$PATH"
+          # The program, its menu entry and icon, then everything they need.
+          DESTDIR="$PWD/AppDir" cmake --install build --prefix /usr
+          desktop-file-validate AppDir/usr/share/applications/remoteplaywhatever.desktop
+          # GTK can't even read its own built-in icons without a MIME database
+          # (and stops). Desktops have one, but it's small, so one comes along.
+          install -Dm644 /usr/share/mime/mime.cache AppDir/usr/share/mime/mime.cache
+          # linuxdeploy leaves FriBidi (used by the bundled Pango) to the system,
+          # but a plain Arch hasn't got it, so it comes along too.
+          linuxdeploy-x86_64.AppImage --appdir AppDir --plugin gtk --output appimage \
+            --library /usr/lib/x86_64-linux-gnu/libfribidi.so.0
+          if [ ! -f "$LINUX_PACKAGE" ]; then mv -v ./*.AppImage "$LINUX_PACKAGE"; fi
+          ls -l "$LINUX_PACKAGE"
+
+      - name: Check the AppImage has everything
+        run: |
+          chmod +x "$LINUX_PACKAGE"
+          rm -rf squashfs-root
+          ./"$LINUX_PACKAGE" --appimage-extract > /dev/null
+          echo "== Bundled libraries =="
+          find squashfs-root/usr/lib -name '*.so*' -printf '%P\n' | sort
+          test -e squashfs-root/usr/lib/libfribidi.so.0
+          test -e squashfs-root/usr/share/mime/mime.cache
+          echo "== ldd remoteplaywhatever =="
+          ldd squashfs-root/usr/bin/remoteplaywhatever | tee ldd-linux.txt
+          if grep -q 'not found' ldd-linux.txt; then echo "::error::A library the app needs is missing"; exit 1; fi
+
+      - name: Smoke test (no Steam here, so it should say so and keep running)
+        run: |
+          cat > smoke.sh << 'EOF'
+          APPIMAGE_EXTRACT_AND_RUN=1 ./"$LINUX_PACKAGE" > smoke-linux.log 2>&1 &
+          pid=$!
+          sleep 10
+          import -window root smoke-linux.png
+          result=0
+          if kill -0 "$pid" 2> /dev/null; then
+            echo "Still running after 10 s (showing its message): OK"
+          else
+            status=0
+            wait "$pid" || status=$?
+            echo "::error::The app quit within 10 s, exit status $status"
+            result=1
+          fi
+          pkill -f appimage_extracted || true
+          kill "$pid" 2> /dev/null || true
+          exit $result
+          EOF
+          result=0
+          xvfb-run -a -s '-screen 0 1280x800x24' bash smoke.sh || result=$?
+          echo "== App output =="
+          cat smoke-linux.log
+          exit $result
+
+      # Arch Linux, like SteamOS, but without GTK, icon themes or a MIME
+      # database: shows that what the AppImage takes from the system is only
+      # what every Linux desktop has (X11 and the font libraries: fontconfig,
+      # FreeType, HarfBuzz).
+      - name: Smoke test on Arch Linux
+        continue-on-error: true
+        run: |
+          cat > arch-smoke.sh << 'EOF'
+          pacman -Syu --noconfirm --needed xorg-server-xvfb xorg-xauth xorg-xwd which procps-ng fontconfig harfbuzz ttf-dejavu > /dev/null
+          echo "== Libraries the AppImage takes from the system that this Arch hasn't got =="
+          find squashfs-root/usr -type f \( -name '*.so*' -o -path '*/bin/*' \) -exec ldd {} \; 2> /dev/null \
+            | awk '/not found/ { print $1 }' | sort -u \
+            | while read -r lib; do [ -e "squashfs-root/usr/lib/$lib" ] || echo "$lib"; done
+          echo "(end of list)"
+          cat > run.sh << 'EOS'
+          APPIMAGE_EXTRACT_AND_RUN=1 ./"$LINUX_PACKAGE" > smoke-arch.log 2>&1 &
+          pid=$!
+          sleep 10
+          xwd -root -silent -out smoke-arch.xwd
+          result=0
+          if kill -0 "$pid" 2> /dev/null; then
+            echo "Still running after 10 s (showing its message): OK"
+          else
+            status=0
+            wait "$pid" || status=$?
+            echo "The app quit within 10 s, exit status $status"
+            result=1
+          fi
+          pkill -f appimage_extracted || true
+          kill "$pid" 2> /dev/null || true
+          exit $result
+          EOS
+          result=0
+          xvfb-run -a -s '-screen 0 1280x800x24' bash run.sh || result=$?
+          echo "== App output =="
+          cat smoke-arch.log
+          exit $result
+          EOF
+          result=0
+          docker run --rm -v "$PWD:/w" -w /w -e LINUX_PACKAGE archlinux:latest bash arch-smoke.sh || result=$?
+          if [ -f smoke-arch.xwd ]; then convert smoke-arch.xwd smoke-arch.png; fi
+          exit $result
+
+      - name: Upload smoke test screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-smoke-test
+          if-no-files-found: ignore
+          path: |
+            smoke-linux.png
+            smoke-linux.log
+            smoke-arch.png
+            smoke-arch.log
+            ldd-linux.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RemotePlayWhatever-linux-x86_64
+          path: ${{ env.LINUX_PACKAGE }}
+
+      - name: Add to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.windows.outputs.tag }}
+        run: gh release upload "$TAG" "$LINUX_PACKAGE" --clobber --repo "$GITHUB_REPOSITORY"
+
+  macos:
+    # A Mac app. It's Intel code because it reads Steam's own (Intel) code;
+    # Apple Silicon Macs run it with Rosetta 2, as they run Steam. wxWidgets
+    # is linked in, and the app is signed ad hoc (not notarized).
+    needs: windows
+    runs-on: macos-15-intel
+    timeout-minutes: 45
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Restore wxWidgets
+        id: wx-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/wx
+          key: wx-${{ env.WX_VERSION }}-osx_cocoa-static-x86_64-macos11-v1
+
+      - name: Build wxWidgets (static, Cocoa, Intel)
+        if: steps.wx-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o wx.tar.bz2 "https://github.com/wxWidgets/wxWidgets/releases/download/v$WX_VERSION/wxWidgets-$WX_VERSION.tar.bz2"
+          tar xjf wx.tar.bz2
+          mkdir wx-build
+          cd wx-build
+          "../wxWidgets-$WX_VERSION/configure" --prefix="$HOME/wx" --with-osx_cocoa --disable-shared --enable-unicode \
+            --with-macosx-version-min=11.0 --enable-macosx_arch=x86_64 \
+            --with-libpng=builtin --with-libjpeg=builtin --with-zlib=builtin --with-expat=builtin --with-regex=builtin \
+            --without-libtiff --without-liblzma --without-libcurl --without-opengl --without-sdl --without-libmspack \
+            --disable-webrequest --disable-webview --disable-mediactrl
+          make -j"$(sysctl -n hw.ncpu)"
+          make install
+
+      # Saved straight away, so a later failing step doesn't mean building it again.
+      - name: Save wxWidgets
+        if: steps.wx-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/wx
+          key: ${{ steps.wx-cache.outputs.cache-primary-key }}
+
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release "-DwxWidgets_CONFIG_EXECUTABLE=$HOME/wx/bin/wx-config" \
+            -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+            "-DRPW_BUILD_NUMBER=$GITHUB_RUN_NUMBER" "-DRPW_UPDATE_REPO=$GITHUB_REPOSITORY"
+          cmake --build build -j "$(sysctl -n hw.ncpu)"
+
+      - name: Make the app and zip it
+        run: |
+          app="Remote Play Whatever.app"
+          exe="dist/$app/Contents/MacOS/RemotePlayWhatever"
+          rm -rf dist
+          mkdir dist
+          ditto build/RemotePlayWhatever/RemotePlayWhatever.app "dist/$app"
+          strip -x "$exe"
+          codesign --force --deep --sign - "dist/$app"
+          codesign --verify --deep --strict --verbose=2 "dist/$app"
+          find "dist/$app" -type f -exec ls -l {} \;
+          plutil -p "dist/$app/Contents/Info.plist"
+          lipo -info "$exe"
+          otool -l "$exe" | grep -A4 LC_BUILD_VERSION || true
+          otool -L "$exe" | tee otool-macos.txt
+          if tail -n +2 otool-macos.txt | grep -E '/usr/local/|/opt/homebrew/|@rpath'; then echo "::error::The app needs a library Macs don't have"; exit 1; fi
+          (cd dist && ditto -c -k --sequesterRsrc --keepParent "$app" "../$MAC_PACKAGE")
+          ls -l "$MAC_PACKAGE"
+
+      - name: Smoke test (no Steam here, so it should say so and keep running)
+        run: |
+          "dist/Remote Play Whatever.app/Contents/MacOS/RemotePlayWhatever" > smoke-macos.log 2>&1 &
+          pid=$!
+          sleep 10
+          screencapture -x smoke-macos.png || echo "::warning::screencapture failed"
+          result=0
+          if kill -0 "$pid" 2> /dev/null; then
+            echo "Still running after 10 s (showing its message): OK"
+          else
+            status=0
+            wait "$pid" || status=$?
+            echo "::error::The app quit within 10 s, exit status $status"
+            result=1
+          fi
+          kill "$pid" 2> /dev/null || true
+          echo "== App output =="
+          cat smoke-macos.log
+          exit $result
+
+      - name: Upload smoke test screenshot and log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-smoke-test
+          if-no-files-found: ignore
+          path: |
+            smoke-macos.png
+            smoke-macos.log
+            otool-macos.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RemotePlayWhatever-macos
+          path: ${{ env.MAC_PACKAGE }}
+
+      - name: Add to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.windows.outputs.tag }}
+        run: gh release upload "$TAG" "$MAC_PACKAGE" --clobber --repo "$GITHUB_REPOSITORY"

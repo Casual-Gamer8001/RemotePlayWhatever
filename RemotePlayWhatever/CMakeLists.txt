@@ -1,4 +1,4 @@
-﻿# CMakeList.txt : CMake project for RemotePlayWhatever, include source and define
+# CMakeList.txt : CMake project for RemotePlayWhatever, include source and define
 # project specific logic here.
 #
 cmake_minimum_required (VERSION 3.8)
@@ -7,6 +7,8 @@ if(${CMAKE_HOST_SYSTEM_NAME} MATCHES "Windows")
     set(SYSTEM_OS "Win")
 elseif(${CMAKE_HOST_SYSTEM_NAME} MATCHES "Linux")
     set(SYSTEM_OS "Linux")
+elseif(${CMAKE_HOST_SYSTEM_NAME} MATCHES "Darwin")
+    set(SYSTEM_OS "Mac")
 else()
     message(FATAL_ERROR "Unsupported platform!")
 endif()
@@ -17,11 +19,11 @@ else()
     set(SYSTEM_ARCH "32")
 endif()
 
-add_custom_target(OpenSteamAPI)
 set(OSW_ROOT "${CMAKE_CURRENT_LIST_DIR}/../open-steamworks")
 set(OSW_INCLUDE_PATH "${OSW_ROOT}/OpenSteamworks")
 set(OSW_LIB_ROOT "${OSW_ROOT}/OpenSteamAPI")
 if(${SYSTEM_OS} STREQUAL "Win")
+    add_custom_target(OpenSteamAPI)
     if(${SYSTEM_ARCH} STREQUAL "64")
         set(OSW_LIB_PATH "${OSW_LIB_ROOT}/lib/${SYSTEM_OS}${SYSTEM_ARCH}/OpenSteamAPI64.lib")
         set(OSW_DLL_PATH "${OSW_LIB_ROOT}/lib/${SYSTEM_OS}${SYSTEM_ARCH}/OpenSteamAPI64.dll")
@@ -40,13 +42,24 @@ if(${SYSTEM_OS} STREQUAL "Win")
         )
     endif()
 else()
-    set(OSW_LIB_PATH "${OSW_LIB_ROOT}/lib/${SYSTEM_OS}${SYSTEM_ARCH}/OpenSteamAPI.a")
-    add_custom_command(TARGET OpenSteamAPI
-        PRE_BUILD
-        WORKING_DIRECTORY "${OSW_LIB_ROOT}/src"
-        COMMAND make
-        VERBATIM
-    )
+    # OpenSteamAPI's own Makefile only knows Linux and g++ (and writes into the
+    # submodule), so its sources are built here instead. On macOS a small
+    # Objective-C++ file finds ~/Library/Application Support for it.
+    set(OSW_SRCS "${OSW_LIB_ROOT}/src/CCallbackMgr.cpp"
+                 "${OSW_LIB_ROOT}/src/ClientWrap.cpp"
+                 "${OSW_LIB_ROOT}/src/Interface_OSW.cpp")
+    if(APPLE)
+        enable_language(OBJCXX)
+        list(APPEND OSW_SRCS "${OSW_LIB_ROOT}/src/OSXPathHelper.mm")
+    endif()
+    add_library(OpenSteamAPI STATIC ${OSW_SRCS})
+    target_include_directories(OpenSteamAPI PRIVATE "${OSW_INCLUDE_PATH}")
+    # Steam's client library is loaded with dlopen.
+    target_link_libraries(OpenSteamAPI PUBLIC ${CMAKE_DL_LIBS})
+    if(APPLE)
+        target_link_libraries(OpenSteamAPI PUBLIC "-framework Foundation")
+    endif()
+    set(OSW_LIB_PATH OpenSteamAPI)
 endif()
 
 
@@ -118,6 +131,36 @@ if(${SYSTEM_OS} STREQUAL "Win")
     add_custom_command(TARGET RemotePlayWhatever POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy ${OSW_DLL_PATH} $<TARGET_FILE_DIR:RemotePlayWhatever>
     )
+elseif(${SYSTEM_OS} STREQUAL "Mac")
+    # An app bundle, with its icon made from appicon.png by macOS's own tools.
+    set(RPW_ICONSET "${CMAKE_CURRENT_BINARY_DIR}/RemotePlayWhatever.iconset")
+    set(RPW_ICNS "${CMAKE_CURRENT_BINARY_DIR}/RemotePlayWhatever.icns")
+    set(RPW_ICON_COMMANDS "")
+    foreach(icon "16x16:16" "16x16@2x:32" "32x32:32" "32x32@2x:64" "128x128:128" "128x128@2x:256" "256x256:256")
+        string(REPLACE ":" ";" parts "${icon}")
+        list(GET parts 0 name)
+        list(GET parts 1 px)
+        list(APPEND RPW_ICON_COMMANDS COMMAND sips -z ${px} ${px} "${CMAKE_CURRENT_SOURCE_DIR}/appicon.png"
+                                      --out "${RPW_ICONSET}/icon_${name}.png")
+    endforeach()
+    add_custom_command(OUTPUT "${RPW_ICNS}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${RPW_ICONSET}"
+        ${RPW_ICON_COMMANDS}
+        COMMAND iconutil -c icns -o "${RPW_ICNS}" "${RPW_ICONSET}"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/appicon.png"
+        VERBATIM
+    )
+    set_source_files_properties("${RPW_ICNS}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+    add_executable(RemotePlayWhatever MACOSX_BUNDLE ${APPSRCs} "${RPW_ICNS}")
+    set_target_properties(RemotePlayWhatever PROPERTIES
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
+        MACOSX_BUNDLE_BUNDLE_NAME "Remote Play Whatever"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "io.github.casualgamer8001.remoteplaywhatever"
+        MACOSX_BUNDLE_ICON_FILE "RemotePlayWhatever.icns"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${RPW_BUILD_NUMBER}"
+        MACOSX_BUNDLE_COPYRIGHT "MIT License"
+    )
 else()
     add_executable(RemotePlayWhatever ${APPSRCs})
 endif()
@@ -135,6 +178,9 @@ if(${SYSTEM_OS} STREQUAL "Linux")
     target_link_libraries(RemotePlayWhatever ${CMAKE_DL_LIBS})
     set_target_properties(RemotePlayWhatever PROPERTIES OUTPUT_NAME "remoteplaywhatever")
     install(TARGETS RemotePlayWhatever DESTINATION "bin")
+    # Menu entry and icon (also what the AppImage is made from).
+    install(FILES "remoteplaywhatever.desktop" DESTINATION "share/applications")
+    install(FILES "appicon.png" DESTINATION "share/icons/hicolor/256x256/apps" RENAME "remoteplaywhatever.png")
 
     file(READ "/etc/issue" ISSUE)
     string(REGEX MATCH "Debian|Ubuntu" DISTRO ${ISSUE})

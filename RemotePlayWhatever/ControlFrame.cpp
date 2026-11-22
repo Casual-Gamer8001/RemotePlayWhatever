@@ -186,9 +186,10 @@ void ControlFrame::SetHotKeysActive(bool on)
 
         // A combination another app already owns, or one that types a letter
         // with AltGr on this keyboard (Ctrl+Alt is AltGr), isn't offered.
+        // (RAW_CONTROL is Ctrl everywhere; plain CONTROL means Command on a Mac.)
         for (const HotKey& k : keys)
         {
-            if (CtrlAltKeyIsFree(k.key) && RegisterHotKey(k.id, wxMOD_CONTROL | wxMOD_ALT, k.key))
+            if (CtrlAltKeyIsFree(k.key) && RegisterHotKey(k.id, wxMOD_RAW_CONTROL | wxMOD_ALT, k.key))
             {
                 m_hotkeys.push_back(k.id);
                 HintKey hint;

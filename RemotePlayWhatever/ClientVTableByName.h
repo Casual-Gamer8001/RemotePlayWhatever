@@ -20,10 +20,11 @@
 //  build is installed.
 //
 //  Cross-platform: the scan is pure x86-64 machine-code pattern matching and
-//  the string is present in both steamclient64.dll (Windows / PE) and
-//  steamclient.so (Linux / ELF, incl. Steam Deck), so the same code path works
-//  on every target this project builds for. Only x86-64 is handled; that is the
-//  only arch the Steam client ships as.
+//  the string is present in steamclient64.dll (Windows / PE), steamclient.so
+//  (Linux / ELF, incl. Steam Deck) and steamclient.dylib (macOS / Mach-O), so
+//  the same code path works on every target this project builds for. Only
+//  x86-64 is handled; that is the only arch the Steam client ships as (on
+//  Apple Silicon Macs Steam runs under Rosetta 2, and so does the Mac build).
 //
 //  Memory safety: a Windows module is one contiguous committed image, but an
 //  ELF object is several PT_LOAD segments (text / rodata / data) with UNMAPPED
@@ -46,6 +47,9 @@
 
 #if defined(_WIN32)
     #include <windows.h>
+#elif defined(__APPLE__)
+    #include <dlfcn.h>
+    #include <mach-o/loader.h>
 #else
     #include <dlfcn.h>
     #include <link.h>
@@ -129,6 +133,72 @@ namespace clientvt
             reinterpret_cast<void*>(base),
             static_cast<size_t>(nt->OptionalHeader.SizeOfImage));
         return true;
+    }
+#elif defined(__APPLE__)
+    // A Mach-O image (steamclient.dylib) is also several segments (__TEXT,
+    // __DATA_CONST, __DATA, __LINKEDIT...), all moved by the same slide from
+    // the addresses in its load commands. The mach header sits at the start
+    // of __TEXT, so slide = header - __TEXT.vmaddr.
+    inline bool ModuleSegments(const void* addr, std::vector<Segment>& segs)
+    {
+        Dl_info di;
+        std::memset(&di, 0, sizeof(di));
+        if (!dladdr(addr, &di) || !di.dli_fbase)
+            return false;
+
+        const mach_header_64* header = static_cast<const mach_header_64*>(di.dli_fbase);
+        if (header->magic != MH_MAGIC_64)
+            return false;
+
+        const load_command* first = reinterpret_cast<const load_command*>(header + 1);
+        bool haveSlide = false;
+        uintptr_t slide = 0;
+        const load_command* lc = first;
+        for (uint32_t i = 0; i < header->ncmds && !haveSlide; ++i)
+        {
+            if (lc->cmd == LC_SEGMENT_64)
+            {
+                const segment_command_64* seg = reinterpret_cast<const segment_command_64*>(lc);
+                if (std::strncmp(seg->segname, "__TEXT", sizeof(seg->segname)) == 0)
+                {
+                    slide = reinterpret_cast<uintptr_t>(header) - static_cast<uintptr_t>(seg->vmaddr);
+                    haveSlide = true;
+                }
+            }
+            lc = reinterpret_cast<const load_command*>(reinterpret_cast<const char*>(lc) + lc->cmdsize);
+        }
+        if (!haveSlide)
+            return false;
+
+        lc = first;
+        for (uint32_t i = 0; i < header->ncmds; ++i)
+        {
+            if (lc->cmd == LC_SEGMENT_64)
+            {
+                const segment_command_64* seg = reinterpret_cast<const segment_command_64*>(lc);
+                // Skip empty and unreadable ones (an executable's __PAGEZERO).
+                if (seg->vmsize > 0 && (seg->initprot & VM_PROT_READ) != 0)
+                {
+                    Segment s;
+                    s.lo = static_cast<uintptr_t>(seg->vmaddr) + slide;
+                    s.hi = s.lo + static_cast<uintptr_t>(seg->vmsize);
+                    segs.push_back(s);
+                }
+            }
+            lc = reinterpret_cast<const load_command*>(reinterpret_cast<const char*>(lc) + lc->cmdsize);
+        }
+
+        if (DebugEnabled())
+        {
+            Log("[vt] module %s base=%p : %zu segment(s)\n",
+                di.dli_fname ? di.dli_fname : "?",
+                di.dli_fbase, segs.size());
+            for (size_t i = 0; i < segs.size(); ++i)
+                Log("[vt]   seg[%zu] %p .. %p\n", i,
+                    reinterpret_cast<void*>(segs[i].lo),
+                    reinterpret_cast<void*>(segs[i].hi));
+        }
+        return !segs.empty();
     }
 #else
     struct SegQuery { uintptr_t base; std::vector<Segment>* segs; };

@@ -64,6 +64,8 @@ static std::vector<wxString> SteamRoots()
     {
         roots.push_back(path);
     }
+#elif defined(__APPLE__)
+    roots.push_back(wxGetHomeDir() + "/Library/Application Support/Steam");
 #else
     wxString home = wxGetHomeDir();
     roots.push_back(home + "/.steam/steam");

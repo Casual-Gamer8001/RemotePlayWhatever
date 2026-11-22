@@ -274,7 +274,11 @@ void FriendsListFrame::BuildMenuBar()
     session->Append(idMenuEndSession, "&End session");
 
     wxMenu* theme = new wxMenu;
+#ifdef __WXMSW__
     theme->AppendRadioItem(idMenuThemeAuto, "&Match Windows");
+#else
+    theme->AppendRadioItem(idMenuThemeAuto, "&Match the system");
+#endif
     theme->AppendRadioItem(idMenuThemeLight, "&Light");
     theme->AppendRadioItem(idMenuThemeDark, "&Dark");
     wxMenu* options = new wxMenu;
@@ -2216,7 +2220,8 @@ void FriendsListFrame::UpdateGuestLinkHotKey()
                         (m_pRemoteInvite->IsSessionActive() || GetRunningGameID().IsValid());
     if (wanted && !m_guestLinkHotKey && wxGetLocalTimeMillis() >= m_guestLinkKeyRetryAt)
     {
-        m_guestLinkHotKey = RegisterHotKey(kHotKeyGuestLink, wxMOD_CONTROL | wxMOD_ALT, 'L');
+        // RAW_CONTROL is Ctrl everywhere; plain CONTROL means Command on a Mac.
+        m_guestLinkHotKey = RegisterHotKey(kHotKeyGuestLink, wxMOD_RAW_CONTROL | wxMOD_ALT, 'L');
         if (!m_guestLinkHotKey)
         {
             // Another app has it; try again in a while.

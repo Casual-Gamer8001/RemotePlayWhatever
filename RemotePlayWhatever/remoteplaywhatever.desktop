@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Remote Play Whatever
+GenericName=Remote Play Together for any game
+Comment=Invite friends to Steam Remote Play Together in any game
+Exec=remoteplaywhatever
+Icon=remoteplaywhatever
+Terminal=false
+Categories=Game;Utility;
+Keywords=Steam;Remote Play;Together;
