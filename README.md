@@ -47,7 +47,7 @@ The macOS version is new and hasn't been tested with a real Mac yet. Please [ope
 2. Open Remote Play Whatever.
 3. Start your game **through Steam**: from your Steam library, or with **Play** next to it under *Recent games* in Remote Play Whatever. A non-Steam game, such as an emulator, has to be added to Steam first (**Games > Add a Non-Steam Game to My Library**) and started from Steam.
 4. Invite someone:
-    - **Invite** next to a friend sends them an invite in Steam chat.
+    - **Invite** next to a friend sends them Steam's own Remote Play Together invite, which shows up in their Steam chat. While you wait for them, **Copy link** next to "Waiting for *name*" gives you a link to send them another way, in case Steam's invite doesn't reach them.
     - **Create guest link** copies a link you can paste anywhere. Anyone can join with it, even without a Steam account: they open it and play through the free Steam Link app on a phone, tablet, computer or TV. Each link lets one person in, so **New guest link** makes another one.
     - **QR code**, next to a waiting link, shows the link as a QR code for someone in the room to scan with their phone.
 5. Switch back to your game and play. To choose who can use the keyboard, mouse or a controller, open the guest controls window (**Session > Show guest controls**) or use the [in-game shortcuts](#in-game-shortcuts).
@@ -59,6 +59,7 @@ Only the game's window is shared for a Steam game. For a **non-Steam game**, Ste
 **Works with current Steam**
 - The Steam-update fix from [pull request #289](https://github.com/m4dEngi/RemotePlayWhatever/pull/289) by @okabeeer: Steam's internal functions are looked up by name, so Steam updates don't break the app, and invites create a real Remote Play Together group so guests can play, not just watch. This needs a 64-bit build.
 - Every Steam call is checked before it's made. If a Steam update ever changes something the app needs, it says so when it starts and, on Windows, looks for a fixed version and offers to install it.
+- Friends are invited the way Steam invites them, into a Remote Play group made for the game, so their mouse reaches the game too, and each guest's keyboard, mouse and controller are set when they join or when you change them (from the [Rammy-3 fork](https://github.com/Rammy-3/RemotePlayWhatever)).
 - When Steam won't set up a Remote Play group for a game, the app asks before sending an invite that would only let the guest watch.
 
 **Sharing a game**
@@ -129,9 +130,12 @@ A shortcut is left out if your keyboard layout uses that key combination to type
 - **"Steam isn't running" or "nobody is signed in"**: start Steam, sign in, then open the app again.
 - **"Start a game through Steam first"**: the game has to be started from Steam, or with **Play** in the app, so that Steam knows it's running.
 - **Your guest can only watch**: Steam didn't set up a Remote Play group for the game. Quit the game, start it again through Steam, and send a new invite.
+- **"Steam doesn't send Remote Play Together invites while you're Invisible"**: set your Steam status to Online, or send a guest link instead.
+- **Your friend didn't get the invite**: use **Copy link** next to "Waiting for *name*" and send them the link another way.
 - **Your guest sees your whole screen**: that's how Steam shares a non-Steam game. Steam games share only their own window.
 - **A Steam update broke the app**: the app says so when it starts and, on Windows, offers a fixed version as soon as there is one. Otherwise check the [releases page](https://github.com/Casual-Gamer8001/RemotePlayWhatever/releases) or [open an issue](https://github.com/Casual-Gamer8001/RemotePlayWhatever/issues).
 - **Sharing doesn't stop after a session ends**: restart Steam.
+- **Reporting a problem**: on Windows, put an empty file named `rpw-debug.log` next to `RemotePlayWhatever.exe` and open the app again. It then writes what it does with Steam (invites, groups, guests joining) into that file; attach it to your [issue](https://github.com/Casual-Gamer8001/RemotePlayWhatever/issues), and delete the file to stop. (On Linux and macOS, start the app from a terminal with `RPW_VTDEBUG=1` set.)
 
 ## How it works
 Remote Play Whatever talks to your running Steam client over Steam's own local connection and asks it to start a Remote Play Together session for the game that's running. It doesn't change any files. It uses Steam's internal, undocumented functions, the same ones the Steam client uses itself.
@@ -185,6 +189,7 @@ The app is `build/RemotePlayWhatever/RemotePlayWhatever.app`.
 ## Credits
 - [m4dEngi](https://github.com/m4dEngi), who made RemotePlayWhatever, and @Jondycz, who had the original idea and tested it.
 - @okabeeer for the Steam-update fix ([pull request #289](https://github.com/m4dEngi/RemotePlayWhatever/pull/289)).
+- [Rammy-3](https://github.com/Rammy-3/RemotePlayWhatever) for Steam-style friend invites in the game's own Remote Play group, the debug log and the Visual Studio 2022 build fix.
 - [Open Steamworks](https://github.com/m4dEngi/open-steamworks) for the Steam client interfaces, and [wxWidgets](https://www.wxwidgets.org/) for the window.
 - Project Nayuki's [QR Code generator library](https://www.nayuki.io/page/qr-code-generator-library) (MIT License).
 
