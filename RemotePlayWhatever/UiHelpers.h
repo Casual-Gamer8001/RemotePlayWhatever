@@ -27,6 +27,13 @@ void SetGuestNoticesEnabled(bool enabled);
 std::set<uint64> LoadPinnedFriends();
 void SavePinnedFriends(const std::set<uint64>& pinned);
 
+// Games (CGameID) whose "Share your whole screen?" question was answered with
+// "don't ask again" (saved), and forgetting all of those answers.
+bool WholeScreenAllowed(uint64 game);
+void AllowWholeScreen(uint64 game);
+bool AnyWholeScreenAllowed();
+void ForgetWholeScreenAnswers();
+
 // What a friend was last allowed to use (keyboard, mouse, controller), saved
 // per SteamID so it's applied again the next time they join.
 bool LoadGuestControls(uint64 steamID, bool& kbd, bool& mouse, bool& ctrl);

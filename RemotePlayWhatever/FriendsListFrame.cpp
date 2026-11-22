@@ -1,6 +1,7 @@
 #include <wx/wx.h>
 #include <wx/clipbrd.h>
 #include <wx/config.h>
+#include <wx/richmsgdlg.h>
 #include <wx/time.h>
 #include <algorithm>
 #include <cmath>
@@ -45,6 +46,7 @@ enum
     idMenuStartWithWindows,
     idMenuAutoUpdates,
     idMenuInstallOnLaunch,
+    idMenuForgetWholeScreen,
     idMenuCheckUpdates,
     idMenuReleaseNotes,
     idMenuProjectPage,
@@ -283,6 +285,7 @@ void FriendsListFrame::BuildMenuBar()
 #ifdef __WXMSW__
     options->AppendCheckItem(idMenuStartWithWindows, "Start with &Windows");
 #endif
+    options->Append(idMenuForgetWholeScreen, "As&k again before sharing the whole screen");
     if (AppUpdater::Supported())
     {
         options->AppendSeparator();
@@ -351,6 +354,13 @@ void FriendsListFrame::BuildMenuBar()
         SetGuestNoticesEnabled(!GuestNoticesEnabled());
         RefreshMenus();
     }, idMenuGuestNotices);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&)
+    {
+        // Non-Steam games ask again whether to share the whole screen.
+        ForgetWholeScreenAnswers();
+        RefreshMenus();
+        ShowNotice("Remote Play Whatever will ask again before sharing your whole screen.", NoticeInfo);
+    }, idMenuForgetWholeScreen);
 #ifdef __WXMSW__
     Bind(wxEVT_MENU, [this](wxCommandEvent&)
     {
@@ -405,6 +415,7 @@ void FriendsListFrame::RefreshMenus()
     bar->Check(idMenuShowOffline, m_showOffline);
     bar->Check(idMenuSounds, SoundsEnabled());
     bar->Check(idMenuGuestNotices, GuestNoticesEnabled());
+    bar->Enable(idMenuForgetWholeScreen, AnyWholeScreenAllowed());
 #ifdef __WXMSW__
     bar->Check(idMenuStartWithWindows, StartsWithWindows());
 #endif
@@ -2112,21 +2123,35 @@ bool FriendsListFrame::ConfirmScreenSharing()
     {
         return true;
     }
-    // Already sharing the screen this session: asking once is enough.
-    if (m_pRemoteInvite->IsSharingDesktop())
+    // Already sharing the screen this session: asking once is enough. Some
+    // games were OK'd for good ("Don't ask again").
+    if (m_pRemoteInvite->IsSharingDesktop() || WholeScreenAllowed(game.ToUint64()))
     {
         return true;
     }
 
-    wxMessageDialog dialog(this,
-                           "This isn't a Steam game, so Remote Play shares your whole screen with your guests, "
-                           "not just the game. Remote Play Whatever keeps its own windows out of what they see.\n\n"
-                           "If the sharing doesn't stop when the session ends, restart Steam.\n\n"
-                           "Continue?",
-                           "Share your whole screen?",
-                           wxOK | wxCANCEL | wxICON_WARNING);
+    const uint32 account = GClientContext()->SteamUser()->GetSteamID().GetAccountID();
+    const wxString name = GetGameName(game, account);
+    wxRichMessageDialog dialog(this,
+                               "This isn't a Steam game, so Remote Play shares your whole screen with your guests, "
+                               "not just the game. Remote Play Whatever keeps its own windows out of what they see.\n\n"
+                               "If the sharing doesn't stop when the session ends, restart Steam.\n\n"
+                               "Continue?",
+                               "Share your whole screen?",
+                               wxOK | wxCANCEL | wxICON_WARNING);
     dialog.SetOKCancelLabels("Share my screen", "Cancel");
-    return dialog.ShowModal() == wxID_OK;
+    // Options > "Ask again before sharing the whole screen" undoes it.
+    dialog.ShowCheckBox(name.empty() ? wxString("Don't ask again for this game") : "Don't ask again for " + name);
+    if (dialog.ShowModal() != wxID_OK)
+    {
+        return false;
+    }
+    if (dialog.IsCheckBoxChecked())
+    {
+        AllowWholeScreen(game.ToUint64());
+        RefreshMenus();
+    }
+    return true;
 }
 
 void FriendsListFrame::OnFriendInvite(wxCommandEvent& event)
@@ -2239,9 +2264,10 @@ void FriendsListFrame::OnGuestLinkHotKey()
         return;
     }
     // A non-Steam game shares the whole screen; that needs a yes in the main
-    // window first (after that, the shortcut works for it too).
+    // window first (after that, the shortcut works for it too), unless it was
+    // OK'd for good.
     const bool desktop = !(game.IsSteamApp() && game.AppID() != m_pRemoteInvite->GetNonSteamAppID());
-    if (desktop && !m_pRemoteInvite->IsSharingDesktop())
+    if (desktop && !m_pRemoteInvite->IsSharingDesktop() && !WholeScreenAllowed(game.ToUint64()))
     {
         Announce("Create this link in Remote Play Whatever",
                  "This isn't a Steam game, so guests would see your whole screen. Create the first link from the main window.",

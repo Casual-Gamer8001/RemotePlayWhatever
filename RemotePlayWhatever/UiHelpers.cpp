@@ -111,6 +111,46 @@ void SavePinnedFriends(const std::set<uint64>& pinned)
     config->Flush();
 }
 
+bool WholeScreenAllowed(uint64 game)
+{
+    wxConfigBase* config = wxConfigBase::Get();
+    return game && config && config->ReadBool(wxString::Format("/WholeScreenOK/%llu", (unsigned long long)game), false);
+}
+
+void AllowWholeScreen(uint64 game)
+{
+    wxConfigBase* config = wxConfigBase::Get();
+    if (game && config)
+    {
+        config->Write(wxString::Format("/WholeScreenOK/%llu", (unsigned long long)game), true);
+        config->Flush();
+    }
+}
+
+bool AnyWholeScreenAllowed()
+{
+    wxConfigBase* config = wxConfigBase::Get();
+    if (!config || !config->HasGroup("/WholeScreenOK"))
+    {
+        return false;
+    }
+    const wxString previous = config->GetPath();
+    config->SetPath("/WholeScreenOK");
+    const bool any = config->GetNumberOfEntries() > 0;
+    config->SetPath(previous);
+    return any;
+}
+
+void ForgetWholeScreenAnswers()
+{
+    wxConfigBase* config = wxConfigBase::Get();
+    if (config)
+    {
+        config->DeleteGroup("/WholeScreenOK");
+        config->Flush();
+    }
+}
+
 void PlayGuestSound(bool joined)
 {
     if (!SoundsEnabled())
