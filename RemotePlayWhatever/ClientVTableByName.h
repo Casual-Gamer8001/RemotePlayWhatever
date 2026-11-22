@@ -462,6 +462,20 @@ namespace clientvt
             return false;
         }
     }
+
+    typedef void* (*UserPipeGetterFn)(void* self, int32_t user, int32_t pipe);
+    inline bool CallUserGetterSafely(UserPipeGetterFn fn, void* self, int32_t user, int32_t pipe, void** result)
+    {
+        __try
+        {
+            *result = fn(self, user, pipe);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
 #else
     // No crash guard here; the module checks below still apply.
     inline bool ReadPointerSafely(const void* address, void** value)
@@ -478,39 +492,43 @@ namespace clientvt
         *result = fn(self, pipe);
         return true;
     }
+
+    typedef void* (*UserPipeGetterFn)(void* self, int32_t user, int32_t pipe);
+    inline bool CallUserGetterSafely(UserPipeGetterFn fn, void* self, int32_t user, int32_t pipe, void** result)
+    {
+        *result = fn(self, user, pipe);
+        return true;
+    }
 #endif
 
-    // iface->slot(pipe) for a method returning another interface pointer.
-    inline bool CallPipeGetterAt(void* iface, int slot, int32_t pipe, void** result)
+    // The function in iface's vtable at slot, if it points into iface's own
+    // module (whose segments are put in segs); null otherwise.
+    inline void* GetterAt(void* iface, int slot, std::vector<Segment>& segs)
     {
-        *result = NULL;
         void* vtable = NULL;
         void* first = NULL;
         if (!iface || slot < 0 || !ReadPointerSafely(iface, &vtable) || !vtable || !ReadPointerSafely(vtable, &first))
-            return false;
-
-        std::vector<Segment> segs;
+            return NULL;
         if (!ModuleSegments(first, segs))
-            return false;
+            return NULL;
         const uintptr_t slotAddr = reinterpret_cast<uintptr_t>(vtable) + static_cast<uintptr_t>(slot) * sizeof(void*);
         if (!Readable(segs, slotAddr, sizeof(void*)))
         {
             Log("[vt] slot %d is past the end of the vtable's module\n", slot);
-            return false;
+            return NULL;
         }
         void* fn = *reinterpret_cast<void**>(slotAddr);
         if (!SegmentEndOf(segs, reinterpret_cast<uintptr_t>(fn)))
         {
             Log("[vt] slot %d doesn't point into the module (%p)\n", slot, fn);
-            return false;
+            return NULL;
         }
+        return fn;
+    }
 
-        void* got = NULL;
-        if (!CallGetterSafely(reinterpret_cast<PipeGetterFn>(fn), iface, pipe, &got))
-        {
-            Log("[vt] slot %d crashed when called\n", slot);
-            return false;
-        }
+    // Whether got is an object whose vtable (and its first entry) is in segs.
+    inline bool IsModuleInterface(const std::vector<Segment>& segs, void* got, int slot)
+    {
         void* gotVtable = NULL;
         void* gotFirst = NULL;
         if (!got || !ReadPointerSafely(got, &gotVtable) || !ReadPointerSafely(gotVtable, &gotFirst) ||
@@ -520,6 +538,45 @@ namespace clientvt
             Log("[vt] slot %d returned %p, which isn't an interface from the module\n", slot, got);
             return false;
         }
+        return true;
+    }
+
+    // iface->slot(pipe) for a method returning another interface pointer.
+    inline bool CallPipeGetterAt(void* iface, int slot, int32_t pipe, void** result)
+    {
+        *result = NULL;
+        std::vector<Segment> segs;
+        void* fn = GetterAt(iface, slot, segs);
+        if (!fn)
+            return false;
+        void* got = NULL;
+        if (!CallGetterSafely(reinterpret_cast<PipeGetterFn>(fn), iface, pipe, &got))
+        {
+            Log("[vt] slot %d crashed when called\n", slot);
+            return false;
+        }
+        if (!IsModuleInterface(segs, got, slot))
+            return false;
+        *result = got;
+        return true;
+    }
+
+    // iface->slot(user, pipe), the same way (e.g. GetIClientShortcuts).
+    inline bool CallUserPipeGetterAt(void* iface, int slot, int32_t user, int32_t pipe, void** result)
+    {
+        *result = NULL;
+        std::vector<Segment> segs;
+        void* fn = GetterAt(iface, slot, segs);
+        if (!fn)
+            return false;
+        void* got = NULL;
+        if (!CallUserGetterSafely(reinterpret_cast<UserPipeGetterFn>(fn), iface, user, pipe, &got))
+        {
+            Log("[vt] slot %d crashed when called\n", slot);
+            return false;
+        }
+        if (!IsModuleInterface(segs, got, slot))
+            return false;
         *result = got;
         return true;
     }
@@ -578,6 +635,8 @@ namespace clientvt
         Ret Invoke(const char* name, A0 a0) const { return InvokeAt<Ret>(IndexOf(name), a0); }
         template <class Ret, class A0, class A1>
         Ret Invoke(const char* name, A0 a0, A1 a1) const { return InvokeAt<Ret>(IndexOf(name), a0, a1); }
+        template <class Ret, class A0, class A1, class A2>
+        Ret Invoke(const char* name, A0 a0, A1 a1, A2 a2) const { return InvokeAt<Ret>(IndexOf(name), a0, a1, a2); }
 
         // Call by explicit (already resolved) vtable index.
         template <class Ret>
@@ -597,6 +656,12 @@ namespace clientvt
         {
             typedef Ret (*Fn)(void*, A0, A1);
             return reinterpret_cast<Fn>(SlotAt(idx))(m_iface, a0, a1);
+        }
+        template <class Ret, class A0, class A1, class A2>
+        Ret InvokeAt(int idx, A0 a0, A1 a1, A2 a2) const
+        {
+            typedef Ret (*Fn)(void*, A0, A1, A2);
+            return reinterpret_cast<Fn>(SlotAt(idx))(m_iface, a0, a1, a2);
         }
 
     protected:

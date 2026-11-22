@@ -53,9 +53,18 @@ public:
     // mode sends anyway, like stock RPW did.
     bool HasGroupFailure() const { return m_groupState == GroupFailed && !m_pending.empty(); }
     void ResolveGroupFailure(bool sendAnyway);
-    // Command-line (one-shot) runs set this. They also never disband a group
-    // they find, since the main window's session may be using it.
+    // No one to ask (command line, --serve): if Steam won't create a group,
+    // send anyway, like stock RPW did. GroupFallbacks counts those.
     void SetAutoFallback(bool sendAnyway) { m_autoFallback = sendAnyway; }
+    uint32 GroupFallbacks() const { return m_groupFallbacks; }
+    // Command-line (one-shot) runs never disband a group they find, since the
+    // main window's session may be using it.
+    void SetKeepExistingGroups(bool keep) { m_keepGroups = keep; }
+    // No sounds when guests come and go (--serve: its frontend says so).
+    void SetQuiet(bool quiet) { m_quiet = quiet; }
+
+    // Who a guest link is "for": no account, so anyone can use it.
+    static CSteamID GuestLinkInvitee();
 
     // Each guest's input is applied when they join and whenever the host
     // changes it. With RPW_REASSERT set, this also applies it again every few
@@ -156,6 +165,9 @@ private:
     bool m_groupForNoGame;      // Steam made no group for the game, so it's the group for no game
     int m_groupTicks;
     bool m_autoFallback;
+    uint32 m_groupFallbacks;
+    bool m_keepGroups;
+    bool m_quiet;
     std::vector<PendingInvite> m_pending;
     std::vector<RemotePlayPlayer_t> m_invited;  // invites sent this session
 

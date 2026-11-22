@@ -133,6 +133,55 @@ public:
     }
 };
 
+// IClientShortcuts (Steam's non-Steam game shortcuts), resolved by name like
+// the Remote Play manager, with only what "Share my screen" needs: a temporary
+// shortcut (Steam forgets it when it restarts) that Steam starts as a game.
+// The arguments of each were checked in steamclient64.dll 11.23.65.88's
+// IClientShortcutsMap stubs: three strings -> a 4-byte app ID; app ID + string
+// (the setters); app ID. Its LaunchShortcut is deliberately not used: it
+// doesn't start the program, but writes a steam_appid.txt next to it, after
+// which Steam refuses that program's connections ("nobody is signed in").
+// The shortcut is started like any game, with steam://rungameid/. Its program
+// and folder go in without quotes: Steam would keep them as part of the path.
+class CShortcutsByName : public clientvt::NamedVTable
+{
+public:
+    bool CanAddTemporary() const
+    {
+        return Ok() && Has("AddTemporaryShortcut") && Has("SetShortcutCommandLine") && Has("SetShortcutStartDir") &&
+               Has("RemoveShortcut");
+    }
+    // name, program, icon -> the shortcut's app ID (0: none was made).
+    uint32 AddTemporaryShortcut(const char* name, const char* exe, const char* icon)
+    {
+        return Has("AddTemporaryShortcut") ? Invoke<uint32>("AddTemporaryShortcut", name, exe, icon) : 0;
+    }
+    // The shortcut's launch options.
+    void SetShortcutCommandLine(uint32 appID, const char* commandLine)
+    {
+        if (Has("SetShortcutCommandLine"))
+        {
+            Invoke<void>("SetShortcutCommandLine", appID, commandLine);
+        }
+    }
+    // The folder the program starts in. Without one, Steam starts it in its
+    // own folder.
+    void SetShortcutStartDir(uint32 appID, const char* dir)
+    {
+        if (Has("SetShortcutStartDir"))
+        {
+            Invoke<void>("SetShortcutStartDir", appID, dir);
+        }
+    }
+    void RemoveShortcut(uint32 appID)
+    {
+        if (Has("RemoveShortcut"))
+        {
+            Invoke<void>("RemoveShortcut", appID);
+        }
+    }
+};
+
 class ClientContext
 {
 public:
@@ -158,6 +207,10 @@ public:
     std::string AppName(AppId_t appID);
 
     CRemoteClientManagerByName* RemoteClientManager();
+    // Steam's shortcuts interface, looked up the first time it's needed. Its
+    // Ok() is false if this Steam doesn't have it where expected (then "Share
+    // my screen" isn't offered); nothing else depends on it.
+    CShortcutsByName* Shortcuts();
 
     bool Init();
     EInitError InitError() const { return m_initError; }
@@ -176,6 +229,8 @@ private:
 
     IClientEngine* m_pClientEngine;
     CRemoteClientManagerByName m_remoteManager;
+    CShortcutsByName m_shortcuts;
+    bool m_shortcutsTried;
 
     bool m_ShuttingDown;
     bool m_Initialized;
@@ -188,5 +243,8 @@ CGameID GetRunningGameID();
 // Steam hands out Remote Play links without a scheme ("s.team/p/..."), which chat
 // apps don't turn into clickable links. Adds https:// when no scheme is present.
 std::string ClickableURL(const char* url);
+
+// Why Steam didn't start a Remote Play session or invite, for the host (UTF-8).
+std::string LaunchResultMessage(ERemoteClientLaunchResult result);
 
 #endif // !STEAMSTUFF_H

@@ -118,6 +118,8 @@ private:
     bool ConfirmScreenSharing();
     void InviteFriend(CSteamID invitee);
     void CreateGuestLink();
+    // Share my screen (for a game Steam doesn't run), or stop it again.
+    void ToggleScreenShare();
 
     RemotePlayInviteHandler* m_pRemoteInvite;
     wxPanel* m_body;
@@ -139,6 +141,7 @@ private:
     wxStaticText* m_stateText;
     WrapLabel* m_stateDetail;
     FlatButton* m_linkButton;
+    FlatButton* m_screenButton;
     FlatButton* m_endButton;
     wxBoxSizer* m_waitingSizer;
     wxString m_waitingShown;

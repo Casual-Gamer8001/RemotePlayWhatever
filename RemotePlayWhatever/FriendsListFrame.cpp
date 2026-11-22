@@ -20,6 +20,7 @@
 #include "UiHelpers.h"
 #include "UiWidgets.h"
 #include "QrCodeDialog.h"
+#include "ScreenShare.h"
 
 // Hotkey id for Ctrl+Alt+L (the control window's ids start at 0xB001).
 static const int kHotKeyGuestLink = 0xB010;
@@ -36,6 +37,7 @@ enum
     idMenuGuestLink,
     idMenuGuestLinkQr,
     idMenuControls,
+    idMenuShareScreen,
     idMenuEndSession,
     idMenuThemeAuto,
     idMenuThemeLight,
@@ -55,7 +57,7 @@ enum
 
 static CSteamID GuestLinkInvitee()
 {
-    return CSteamID(0, k_EUniversePublic, k_EAccountTypeIndividual);
+    return RemotePlayInviteHandler::GuestLinkInvitee();
 }
 
 // A game's picture, or an invalid image if there's none (or it won't load).
@@ -88,6 +90,7 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     m_stateText(nullptr),
     m_stateDetail(nullptr),
     m_linkButton(nullptr),
+    m_screenButton(nullptr),
     m_endButton(nullptr),
     m_waitingSizer(nullptr),
     m_noticeCard(nullptr),
@@ -271,6 +274,8 @@ void FriendsListFrame::BuildMenuBar()
     session->Append(idMenuGuestLinkQr, "Show guest link as a &QR code");
     session->Append(idMenuControls, "Show &guest controls");
     session->AppendSeparator();
+    session->Append(idMenuShareScreen, "Share my &screen (for a game Steam doesn't run)");
+    session->AppendSeparator();
     session->Append(idMenuEndSession, "&End session");
 
     wxMenu* theme = new wxMenu;
@@ -331,6 +336,7 @@ void FriendsListFrame::BuildMenuBar()
     Bind(wxEVT_MENU, [this](wxCommandEvent&) { OnLinkButton(); }, idMenuGuestLink);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) { ShowGuestLinkQrCode(true); }, idMenuGuestLinkQr);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) { ShowGuestControls(); }, idMenuControls);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) { CallAfter([this]() { ToggleScreenShare(); }); }, idMenuShareScreen);
     Bind(wxEVT_MENU, [this](wxCommandEvent&)
     {
         if (m_pRemoteInvite->IsSessionActive())
@@ -412,6 +418,16 @@ void FriendsListFrame::RefreshMenus()
     bar->Enable(idMenuGuestLink, m_linkRequestedAt == 0);
     bar->Enable(idMenuGuestLinkQr, session && !m_pRemoteInvite->GuestLink().empty());
     bar->Enable(idMenuEndSession, session);
+    // Share my screen: offered with no game and no session; stops it again.
+    const bool ourScreen = ScreenShare::Active();
+    const wxString screen = ourScreen ? "Stop sharing my &screen" : "Share my &screen (for a game Steam doesn't run)";
+    wxMenuItem* screenItem = bar->FindItem(idMenuShareScreen);
+    if (screenItem && screenItem->GetItemLabel() != screen)
+    {
+        screenItem->SetItemLabel(screen);
+    }
+    bar->Enable(idMenuShareScreen, !ScreenShare::Starting() &&
+                                   (ourScreen || (!session && !GetRunningGameID().IsValid() && ScreenShare::Available())));
     bar->Enable(idMenuHideToTray, m_tray && m_tray->IsIconInstalled());
 
     const ThemeChoice theme = LoadThemeChoice();
@@ -889,6 +905,12 @@ void FriendsListFrame::BuildSessionCard(wxSizer* sizer)
     m_linkButton = new FlatButton(m_gameCard, "Create guest link", FlatButton::Primary, Ui::kGlyphLink);
     m_linkButton->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { OnLinkButton(); });
     buttons->Add(m_linkButton, 1);
+    // With no game running: share the whole screen for a game Steam doesn't
+    // run (ScreenShare), and stop that again.
+    m_screenButton = new FlatButton(m_gameCard, "Share my screen");
+    m_screenButton->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { CallAfter([this]() { ToggleScreenShare(); }); });
+    m_screenButton->Hide();
+    buttons->Add(m_screenButton, 1, wxLEFT, FromDIP(8));
     m_endButton = new FlatButton(m_gameCard, "End session");
     m_endButton->SetToolTip("Disconnect everyone, cancel unused invites and guest links, and stop sharing your screen.");
     m_endButton->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { ConfirmEndSession(); });
@@ -1135,8 +1157,12 @@ void FriendsListFrame::UpdateStatus()
     const bool hasGame = signedIn && game.IsValid();
     const bool nonSteam = hasGame && !(game.IsSteamApp() && game.AppID() != m_pRemoteInvite->GetNonSteamAppID());
     const uint32 account = signedIn ? GClientContext()->SteamUser()->GetSteamID().GetAccountID() : 0;
-    wxString name = hasGame ? GetGameName(game, account) : wxString();
-    const wxString gameInText = name.empty() ? wxString(nonSteam ? "a non-Steam game" : "your game") : name;
+    // Share my screen: its placeholder is "the game" Steam runs (ScreenShare).
+    const bool ourScreen = hasGame && ScreenShare::IsOurs(game);
+    const bool screenStarting = signedIn && !hasGame && ScreenShare::Starting();
+    wxString name = ourScreen ? wxString("Your screen") : hasGame ? GetGameName(game, account) : wxString();
+    const wxString gameInText = ourScreen ? wxString("your screen") :
+                                name.empty() ? wxString(nonSteam ? "a non-Steam game" : "your game") : name;
     if (name.empty())
     {
         name = nonSteam ? "A non-Steam game" : "Your game";
@@ -1194,6 +1220,12 @@ void FriendsListFrame::UpdateStatus()
                    (guests == 0 ? wxString("waiting for guests to join.") : who + ".") +
                    (desktop ? " Guests can see your whole screen." : "");
     }
+    else if (screenStarting)
+    {
+        state = "Starting screen sharing...";
+        detail = "Steam is starting it. This takes a few seconds.";
+        trayText = "Starting screen sharing...";
+    }
     else if (!hasGame && m_startingGame != 0)
     {
         state = "Starting " + m_startingName + "...";
@@ -1206,6 +1238,15 @@ void FriendsListFrame::UpdateStatus()
         detail = gamesListed ? "Start a game below or through Steam, then invite someone."
                              : "Start a game through Steam, then invite someone.";
         trayText = "No game running. Start a game through Steam, then invite someone.";
+    }
+    else if (ourScreen)
+    {
+        state = "Ready to share your screen";
+        detail = "Start your game now (from the Xbox app, Epic or anywhere), then invite someone. "
+                 "Guests will see your whole screen.";
+        detailColour = &Ui::kWarnText;
+        dot = Ui::kGood;
+        trayText = "Ready to share your screen: start your game, then invite someone.";
     }
     else
     {
@@ -1311,11 +1352,28 @@ void FriendsListFrame::UpdateStatus()
         m_endButton->Show(session);
         relayout = true;
     }
+    // Share my screen, while there's no game or session (or to stop it).
+    const bool showScreen = signedIn && !session && (ourScreen || screenStarting || (!hasGame && ScreenShare::Available()));
+    const wxString screenLabel = ourScreen ? "Stop sharing my screen" : screenStarting ? "Starting..." : "Share my screen";
+    if (m_screenButton->IsShown() != showScreen || m_screenButton->GetLabel() != screenLabel)
+    {
+        relayout = true;
+    }
+    m_screenButton->Show(showScreen);
+    m_screenButton->SetLabel(screenLabel);
+    m_screenButton->Enable(!screenStarting);
+    const wxString screenTip = ourScreen ? wxString("Stop sharing your screen (Steam stops the placeholder game).") :
+        wxString("For a game Steam doesn't run (from the Xbox app, Epic, ...): Steam starts a placeholder game so "
+                 "Remote Play can share your whole screen. Start your game yourself afterwards.");
+    if (m_screenButton->GetToolTipText() != screenTip)
+    {
+        m_screenButton->SetToolTip(screenTip);
+    }
     // Menu items are greyed or not as the session goes (a menu item's
     // shortcut, or a command for it, does nothing while it's greyed), not
     // only when a menu is opened.
-    const wxString menuState = wxString::Format("%d%d%d%d", session, hasLink, creating,
-                                                m_tray && m_tray->IsIconInstalled());
+    const wxString menuState = wxString::Format("%d%d%d%d%d%d", session, hasLink, creating,
+                                                m_tray && m_tray->IsIconInstalled(), ourScreen, screenStarting);
     if (menuState != m_menuState)
     {
         m_menuState = menuState;
@@ -1587,8 +1645,46 @@ void FriendsListFrame::ConfirmEndSession()
     if (answer == wxYES)
     {
         m_pRemoteInvite->EndSession();
+        // Everything stops, a screen share too.
+        if (ScreenShare::Active() || ScreenShare::Starting())
+        {
+            ScreenShare::Stop();
+        }
         UpdateStatus();
     }
+}
+
+void FriendsListFrame::ToggleScreenShare()
+{
+    if (ScreenShare::Active() || ScreenShare::Starting())
+    {
+        if (m_pRemoteInvite->IsSessionActive())
+        {
+            m_pRemoteInvite->EndSession();
+        }
+        ScreenShare::Stop();
+        ShowNotice("Screen sharing stopped.", NoticeInfo);
+        UpdateStatus();
+        return;
+    }
+    if (!GClientContext()->SteamUser()->BLoggedOn())
+    {
+        ShowNotice("Sign in to Steam first, then try again.", NoticeWarning);
+        return;
+    }
+    if (GetRunningGameID().IsValid() || m_pRemoteInvite->IsSessionActive())
+    {
+        ShowNotice("A game is running already: invite someone to it instead.", NoticeWarning);
+        return;
+    }
+    std::string error;
+    if (!ScreenShare::Start(error))
+    {
+        ShowNotice(wxString::FromUTF8(error.c_str()), NoticeWarning);
+        return;
+    }
+    m_notice.clear();
+    UpdateStatus();
 }
 
 void FriendsListFrame::ShowNotice(const wxString& text, NoticeKind kind)
@@ -1807,6 +1903,17 @@ void FriendsListFrame::OnUpdaterChange()
 
 void FriendsListFrame::OnTick(wxTimerEvent&)
 {
+    switch (ScreenShare::Tick())
+    {
+    case ScreenShare::TickEnded:
+        ShowNotice("Screen sharing stopped.", NoticeInfo);
+        break;
+    case ScreenShare::TickNotStarted:
+        ShowNotice("Steam didn't start the screen share. Try again, or restart Steam.", NoticeWarning);
+        break;
+    default:
+        break;
+    }
     UpdateGuestNotices();
     UpdateStatus();
     UpdateGuestLinkHotKey();
@@ -1857,26 +1964,7 @@ void FriendsListFrame::OnTick(wxTimerEvent&)
 
 static wxString DescribeLaunchResult(ERemoteClientLaunchResult result)
 {
-    switch (result)
-    {
-    case k_ERemoteClientLaunchResultTimeout:
-    case k_ERemoteClientLaunchResultStreamTimeout:      return "Steam timed out while starting the session.";
-    case k_ERemoteClientLaunchResultOtherGameRunning:   return "Another game is already being shared.";
-    case k_ERemoteClientLaunchResultAccessDenied:       return "Steam refused the request.";
-    case k_ERemoteClientLaunchResultNetworkError:       return "There was a network error.";
-    case k_ERemoteClientLaunchResultScreenLocked:       return "This PC's screen is locked.";
-    case k_ERemoteClientLaunchResultUnsupported:        return "Steam says this game can't be shared.";
-    case k_ERemoteClientLaunchResultDisabledLocal:      return "Remote Play is turned off in this PC's Steam settings.";
-    case k_ERemoteClientLaunchResultDisabledRemote:     return "Remote Play is turned off on your friend's side.";
-    case k_ERemoteClientLaunchResultBroadcasting:       return "Steam can't share the game while you're broadcasting.";
-    case k_ERemoteClientLaunchResultBusy:               return "Steam is busy with another stream.";
-    case k_ERemoteClientLaunchResultDriversNotInstalled:return "Steam's streaming drivers aren't installed.";
-    case k_ERemoteClientLaunchResultCanceled:           return "The invite was canceled.";
-    case k_ERemoteClientLaunchResultInvisible:          return "Steam doesn't send Remote Play Together invites while you're Invisible. "
-                                                               "Set your Steam status to Online, or use a guest link.";
-    case k_ERemoteClientLaunchResultRestrictedCountry:  return "Steam says Remote Play Together isn't available in your friend's country.";
-    default:                                            return "Steam couldn't start the session.";
-    }
+    return wxString::FromUTF8(LaunchResultMessage(result).c_str());
 }
 
 void FriendsListFrame::AddFreiendPanel(CSteamID friendID)
@@ -2162,9 +2250,9 @@ bool FriendsListFrame::ConfirmScreenSharing()
     {
         return true;
     }
-    // Already sharing the screen this session: asking once is enough. Some
-    // games were OK'd for good ("Don't ask again").
-    if (m_pRemoteInvite->IsSharingDesktop() || WholeScreenAllowed(game.ToUint64()))
+    // Share my screen was chosen for exactly this; sharing the screen this
+    // session already asked once; and some games were OK'd for good.
+    if (ScreenShare::IsOurs(game) || m_pRemoteInvite->IsSharingDesktop() || WholeScreenAllowed(game.ToUint64()))
     {
         return true;
     }

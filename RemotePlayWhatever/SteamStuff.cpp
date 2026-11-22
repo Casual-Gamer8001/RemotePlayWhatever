@@ -1,4 +1,6 @@
 #include <wx/clipbrd.h>
+#include <wx/filename.h>
+#include <wx/stdpaths.h>
 #include "SteamStuff.h"
 
 // steam client context
@@ -12,6 +14,7 @@ ClientContext::ClientContext():
     m_pSteamUtils(nullptr),
     m_pSteamApps001(nullptr),
     m_pClientEngine(nullptr),
+    m_shortcutsTried(false),
     m_ShuttingDown(false),
     m_Initialized(false),
     m_initError(InitOK)
@@ -31,6 +34,22 @@ bool ClientContext::Init()
 
     // Until something more specific is known, failing means Steam isn't there.
     m_initError = InitSteamNotRunning;
+
+    // A steam_appid.txt next to this program makes Steam connect it as that
+    // game and refuse it ("nobody is signed in"). This app is no Steam game and
+    // never has one; Steam itself can leave one behind when it fails to start
+    // a non-Steam game (a screen share), so it goes.
+    static bool appIdFileChecked = false;
+    if (!appIdFileChecked)
+    {
+        appIdFileChecked = true;
+        const wxFileName appIdFile(wxFileName(wxStandardPaths::Get().GetExecutablePath()).GetPath(), "steam_appid.txt");
+        if (appIdFile.FileExists())
+        {
+            const bool removed = wxRemoveFile(appIdFile.GetFullPath());
+            clientvt::Log("[rp] steam_appid.txt next to the program: %s\n", removed ? "removed" : "COULDN'T REMOVE");
+        }
+    }
 
     // Steam's library only needs loading once: when Steam isn't running yet
     // (the app started with Windows), Init() is simply called again later.
@@ -205,6 +224,27 @@ CRemoteClientManagerByName* ClientContext::RemoteClientManager()
     return &m_remoteManager;
 }
 
+CShortcutsByName* ClientContext::Shortcuts()
+{
+    // GetIClientShortcuts(user, pipe) is slot 58 in OpenSteamworks' IClientEngine
+    // declaration (checked in Steam 11.23.65.88: it takes both and refuses 0).
+    // Fetched under the same guard as the Remote Play manager, and only once.
+    static const int kShortcutsSlot = 58;
+    if (!m_shortcutsTried && m_Initialized && m_pClientEngine)
+    {
+        m_shortcutsTried = true;
+        void* shortcuts = NULL;
+        if (clientvt::CallUserPipeGetterAt(m_pClientEngine, kShortcutsSlot, m_hUser, m_hPipe, &shortcuts))
+        {
+            m_shortcuts.Bind(shortcuts);
+        }
+        clientvt::Log("[rp] shortcuts interface: %s (%zu named methods, temporary shortcuts %s)\n",
+                      shortcuts ? "found" : "not found", m_shortcuts.Count(),
+                      m_shortcuts.CanAddTemporary() ? "possible" : "not possible");
+    }
+    return &m_shortcuts;
+}
+
 // helper functions
 
 ClientContext* GClientContext()
@@ -232,6 +272,30 @@ std::string ClickableURL(const char* url)
         link = "https://" + link;
     }
     return link;
+}
+
+std::string LaunchResultMessage(ERemoteClientLaunchResult result)
+{
+    switch (result)
+    {
+    case k_ERemoteClientLaunchResultTimeout:
+    case k_ERemoteClientLaunchResultStreamTimeout:      return "Steam timed out while starting the session.";
+    case k_ERemoteClientLaunchResultOtherGameRunning:   return "Another game is already being shared.";
+    case k_ERemoteClientLaunchResultAccessDenied:       return "Steam refused the request.";
+    case k_ERemoteClientLaunchResultNetworkError:       return "There was a network error.";
+    case k_ERemoteClientLaunchResultScreenLocked:       return "This PC's screen is locked.";
+    case k_ERemoteClientLaunchResultUnsupported:        return "Steam says this game can't be shared.";
+    case k_ERemoteClientLaunchResultDisabledLocal:      return "Remote Play is turned off in this PC's Steam settings.";
+    case k_ERemoteClientLaunchResultDisabledRemote:     return "Remote Play is turned off on your friend's side.";
+    case k_ERemoteClientLaunchResultBroadcasting:       return "Steam can't share the game while you're broadcasting.";
+    case k_ERemoteClientLaunchResultBusy:               return "Steam is busy with another stream.";
+    case k_ERemoteClientLaunchResultDriversNotInstalled:return "Steam's streaming drivers aren't installed.";
+    case k_ERemoteClientLaunchResultCanceled:           return "The invite was canceled.";
+    case k_ERemoteClientLaunchResultInvisible:          return "Steam doesn't send Remote Play Together invites while you're Invisible. "
+                                                               "Set your Steam status to Online, or use a guest link.";
+    case k_ERemoteClientLaunchResultRestrictedCountry:  return "Steam says Remote Play Together isn't available in your friend's country.";
+    default:                                            return "Steam couldn't start the session.";
+    }
 }
 
 

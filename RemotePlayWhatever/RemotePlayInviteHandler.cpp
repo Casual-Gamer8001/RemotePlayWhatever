@@ -20,6 +20,9 @@ RemotePlayInviteHandler::RemotePlayInviteHandler() :
     m_groupForNoGame(false),
     m_groupTicks(0),
     m_autoFallback(false),
+    m_groupFallbacks(0),
+    m_keepGroups(false),
+    m_quiet(false),
     m_sessionGame(0),
     m_sessionGameGoneTicks(0),
     m_rosterRevision(0),
@@ -33,6 +36,11 @@ RemotePlayInviteHandler::RemotePlayInviteHandler() :
 AppId_t RemotePlayInviteHandler::GetNonSteamAppID()
 {
     return m_nonsteamAppID;
+}
+
+CSteamID RemotePlayInviteHandler::GuestLinkInvitee()
+{
+    return CSteamID(0, k_EUniversePublic, k_EAccountTypeIndividual);
 }
 
 uint32 RemotePlayInviteHandler::LiveGroup(CRemoteClientManagerByName* rcm) const
@@ -151,7 +159,7 @@ void RemotePlayInviteHandler::SendInvite(CSteamID invitee)
         // guests who stayed after the app was closed and opened again, people
         // invited through Steam itself, or the main window's session while this
         // is a command-line run. Steam's streams say so; then it's kept.
-        const bool inUse = !m_guests.empty() || !m_invited.empty() || m_autoFallback ||
+        const bool inUse = !m_guests.empty() || !m_invited.empty() || m_keepGroups ||
                            rcm->BIsStreamingSessionActive();
         if (leftover && inUse)
         {
@@ -576,6 +584,7 @@ void RemotePlayInviteHandler::ResolveGroupFailure(bool sendAnyway)
         // Stock RPW behaviour: invite with the default group id.
         m_groupID = 1;
         m_groupState = GroupReady;
+        ++m_groupFallbacks;
     }
     else
     {
@@ -795,7 +804,10 @@ void RemotePlayInviteHandler::OnRemotePlayStart(RemoteClientStartStreamSession_t
     g.savedKbd = g.savedMouse = g.savedCtrl = false;
     m_guests.push_back(g);
     ++m_rosterRevision;
-    PlayGuestSound(true);
+    if (!m_quiet)
+    {
+        PlayGuestSound(true);
+    }
     // For the friends list's "Played with recently" group.
     SaveGuestJoined(g.steamID);
     // A guest link is used up once someone has come in with it.
@@ -925,7 +937,10 @@ void RemotePlayInviteHandler::OnRemotePlayStop(RemoteClientStopStreamSession_t* 
         {
             m_guests.erase(m_guests.begin() + i);
             ++m_rosterRevision;
-            PlayGuestSound(false);
+            if (!m_quiet)
+            {
+                PlayGuestSound(false);
+            }
             break;
         }
     }

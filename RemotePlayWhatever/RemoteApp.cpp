@@ -12,6 +12,7 @@
 #include "FriendsListFrame.h"
 #include "ControlFrame.h"
 #include "TrayIcon.h"
+#include "ScreenShare.h"
 #ifdef __WXMSW__
 #include <cwchar>
 #include <wx/msw/wrapwin.h>
@@ -285,8 +286,10 @@ int RemoteApp::OnRun()
     )
     {
         // No one to ask on the command line: if Steam won't create a group,
-        // send anyway like stock RPW did.
+        // send anyway like stock RPW did. And the main window may be running a
+        // session in the group this finds, so it's never disbanded here.
         m_inviteHandler->SetAutoFallback(true);
+        m_inviteHandler->SetKeepExistingGroups(true);
         QueueInviter qinviter(m_inviteHandler, &m_inviteQue);
         qinviter.SendInvites();
         while(qinviter.Running())
@@ -312,6 +315,13 @@ int RemoteApp::OnExit()
     if (m_callbackRunner.IsRunning())
     {
         m_callbackRunner.Stop();
+    }
+
+    // A screen share's placeholder quits with this copy anyway; its temporary
+    // shortcut goes too.
+    if (!m_oneshot)
+    {
+        ScreenShare::Stop(true);
     }
 
     if(m_inviteHandler)

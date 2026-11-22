@@ -130,6 +130,10 @@ set(APPSRCs "RemotePlayWhatever.cpp"
             "qrcodegen.cpp"
             "GameProcess.h"
             "GameProcess.cpp"
+            "ScreenShare.h"
+            "ScreenShare.cpp"
+            "ServeMode.h"
+            "ServeMode.cpp"
 )
 
 
