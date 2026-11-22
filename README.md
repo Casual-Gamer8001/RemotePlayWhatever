@@ -29,7 +29,7 @@ Get the newest version from the [latest release](https://github.com/Casual-Gamer
 3. Right-click the file, choose **Properties > Permissions** and tick **Is executable** (or run `chmod +x RemotePlayWhatever-linux-x86_64.AppImage` in Konsole).
 4. Make sure Steam is running and signed in (it is in Desktop Mode), then double-click the AppImage.
 
-Start the game from Steam in Desktop Mode too. Game Mode runs one game at a time, so Remote Play Whatever and your game can't run side by side there.
+Start the game from Steam in Desktop Mode too. Some people add the AppImage to Steam as a non-Steam game and use it from Game Mode, but closing it there can freeze Steam until the Deck restarts ([upstream issue #69](https://github.com/m4dEngi/RemotePlayWhatever/issues/69)), so Desktop Mode is the safe choice.
 
 ### Other Linux PCs
 Use the same AppImage: mark it executable and run it while the Steam client is running. It needs a 64-bit PC with glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedora 36, Arch and newer) and a desktop with X11 or XWayland. It works with the usual Steam installs (in `~/.steam` or `~/.local/share/Steam`). The Flatpak version of Steam keeps its files inside its sandbox, so it probably won't work with that.
