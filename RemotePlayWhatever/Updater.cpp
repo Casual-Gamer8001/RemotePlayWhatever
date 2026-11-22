@@ -9,6 +9,7 @@
 #include <wx/filefn.h>
 #include <wx/filename.h>
 #include <wx/log.h>
+#include <wx/msgdlg.h>
 #include <wx/stdpaths.h>
 #include <wx/tokenzr.h>
 #include <wx/utils.h>
@@ -147,6 +148,111 @@ bool RestoreOld(const wxString& target)
 {
     const wxString old = target + ".old";
     return MoveWithRetry(old, target, 50) || ::CopyFileW(old.wc_str(), target.wc_str(), FALSE);
+}
+
+// An update whose new version hasn't started properly yet, written next to
+// the program as update-pending.txt: the builds, which files it replaced
+// (and whether there was an old one, now X.old), and whether a start of the
+// new version has tried to get going.
+struct PendingUpdate
+{
+    PendingUpdate() : from(0), to(0), tried(false) {}
+
+    long from;
+    long to;
+    bool tried;
+    std::vector<std::pair<wxString, bool>> files;
+};
+
+wxString PendingPath()
+{
+    return Join(AppDir(), "update-pending.txt");
+}
+
+// A file name in the program's folder, nothing more (the program may have
+// been renamed, so any name without a folder in it).
+bool IsPlainFileName(const wxString& name)
+{
+    return !name.empty() && name != "." && name != ".." && name.find_first_of("/\\:") == wxString::npos;
+}
+
+bool ReadPending(PendingUpdate& pending)
+{
+    wxLogNull quiet;
+    wxFFile file(PendingPath(), "rb");
+    wxString text;
+    if (!file.IsOpened() || !file.ReadAll(&text, wxConvUTF8))
+    {
+        return false;
+    }
+    wxStringTokenizer lines(text, "\r\n", wxTOKEN_STRTOK);
+    while (lines.HasMoreTokens())
+    {
+        const wxString line = lines.GetNextToken();
+        const wxString key = line.BeforeFirst('=');
+        const wxString value = line.AfterFirst('=');
+        if (key == "from")
+        {
+            value.ToLong(&pending.from);
+        }
+        else if (key == "to")
+        {
+            value.ToLong(&pending.to);
+        }
+        else if (key == "tried")
+        {
+            pending.tried = value == "1";
+        }
+        else if (key == "file" && value.length() > 2 && value[1] == '|' && IsPlainFileName(value.Mid(2)))
+        {
+            pending.files.push_back(std::make_pair(value.Mid(2), value[0] == '1'));
+        }
+    }
+    return !pending.files.empty();
+}
+
+bool WritePending(const PendingUpdate& pending)
+{
+    wxLogNull quiet;
+    wxString text = wxString::Format("from=%ld\nto=%ld\n", pending.from, pending.to);
+    for (size_t i = 0; i < pending.files.size(); ++i)
+    {
+        text += wxString::Format("file=%c|", pending.files[i].second ? '1' : '0') + pending.files[i].first + "\n";
+    }
+    if (pending.tried)
+    {
+        text += "tried=1\n";
+    }
+    wxFFile file(PendingPath(), "wb");
+    return file.IsOpened() && file.Write(text, wxConvUTF8) && file.Close();
+}
+
+// X.old next to X (what an update renamed), and X.bad (what a rollback put
+// aside); the program they belong to isn't running any more.
+void RemoveReplacedFiles(bool olds, bool bads)
+{
+    wxLogNull quiet;
+    const wxString dir = AppDir();
+    if (!wxDirExists(dir))
+    {
+        return;
+    }
+    wxArrayString files;
+    if (olds)
+    {
+        wxDir::GetAllFiles(dir, &files, "*.old", wxDIR_FILES);
+    }
+    if (bads)
+    {
+        wxDir::GetAllFiles(dir, &files, "*.bad", wxDIR_FILES);
+    }
+    for (size_t i = 0; i < files.size(); ++i)
+    {
+        if (wxFileExists(files[i].Left(files[i].length() - 4)))
+        {
+            ::DeleteFileW(files[i].wc_str());
+        }
+    }
 }
 
 bool Sha256File(const wxString& path, wxString& hex)
@@ -297,7 +403,8 @@ bool StartNewCopy(const wxString& exe, const wxString& dir, const wxString& argu
     return true;
 }
 
-bool InstallPackage(const wxString& package, const wxString& sha256, const wxString& arguments, wxString& error)
+bool InstallPackage(const wxString& package, const wxString& sha256, long newBuild, const wxString& arguments,
+                    wxString& error)
 {
     wxLogNull quiet;
 
@@ -341,8 +448,8 @@ bool InstallPackage(const wxString& package, const wxString& sha256, const wxStr
     }
 
     // Windows won't overwrite a running program or a DLL it has loaded, but it
-    // lets them be renamed: the current files become *.old (removed when the
-    // new version starts) and the new ones take their places.
+    // lets them be renamed: the current files become *.old (removed once the
+    // new version has started properly) and the new ones take their places.
     const wxString exeName = wxFileName(ExePath()).GetFullName();
     std::vector<SwappedFile> done;
     for (size_t i = 0; i < names.size(); ++i)
@@ -374,8 +481,21 @@ bool InstallPackage(const wxString& package, const wxString& sha256, const wxStr
     }
     RemoveTree(staging);
 
+    // Which files were replaced, so a new version that doesn't start can be
+    // undone (AppUpdater::RollBackFailedUpdate). Without it the update still
+    // goes ahead, just without that safety net.
+    PendingUpdate pending;
+    pending.from = AppUpdater::CurrentBuild();
+    pending.to = newBuild;
+    for (size_t i = 0; i < done.size(); ++i)
+    {
+        pending.files.push_back(std::make_pair(wxFileName(done[i].target).GetFullName(), done[i].hadOld));
+    }
+    WritePending(pending);
+
     if (!StartNewCopy(Join(dir, exeName), dir, arguments))
     {
+        ::DeleteFileW(PendingPath().wc_str());
         error = Undo(done) ? wxString("Couldn't start the new version, so the old one was put back.")
                            : wxString(kBrokenInstall);
         return false;
@@ -671,7 +791,8 @@ void AppUpdater::FinishInstall()
     }
     SetState(Installing);
     wxString error;
-    bool ok = InstallPackage(PackagePath(), m_sha256, m_restartArguments ? m_restartArguments() : wxString(), error);
+    bool ok = InstallPackage(PackagePath(), m_sha256, m_availableBuild, m_restartArguments ? m_restartArguments() : wxString(),
+                             error);
     {
         wxLogNull quiet;
         wxRemoveFile(PackagePath());
@@ -807,24 +928,143 @@ void AppUpdater::CleanUp()
 {
 #if RPW_HAS_UPDATER
     wxLogNull quiet;
-    const wxString dir = AppDir();
-    wxArrayString olds;
-    if (wxDirExists(dir))
-    {
-        wxDir::GetAllFiles(dir, &olds, "*.old", wxDIR_FILES);
-    }
-    for (size_t i = 0; i < olds.size(); ++i)
-    {
-        // Only what an update renamed: X.old next to a new X.
-        if (wxFileExists(olds[i].Left(olds[i].length() - 4)))
-        {
-            ::DeleteFileW(olds[i].wc_str());
-        }
-    }
+    // The files an update replaced stay until its new version has started
+    // properly (MarkStartedOK); what a rollback put aside can always go.
+    RemoveReplacedFiles(!wxFileExists(PendingPath()), true);
     RemoveTree(StagingDir());
     if (wxFileExists(PackagePath()))
     {
         wxRemoveFile(PackagePath());
     }
 #endif
+}
+
+bool AppUpdater::RollBackFailedUpdate(const wxString& arguments)
+{
+#if RPW_HAS_UPDATER
+    wxLogNull quiet;
+    if (!wxFileExists(PendingPath()))
+    {
+        return false;
+    }
+    PendingUpdate pending;
+    if (!ReadPending(pending))
+    {
+        ::DeleteFileW(PendingPath().wc_str());
+        return false;
+    }
+    if (!pending.tried)
+    {
+        // This start is the new version's try.
+        pending.tried = true;
+        WritePending(pending);
+        return false;
+    }
+
+    // The new version was tried and never got as far as its window: put the
+    // old files back, if they're all still there.
+    const wxString dir = AppDir();
+    for (size_t i = 0; i < pending.files.size(); ++i)
+    {
+        if (pending.files[i].second && !wxFileExists(Join(dir, pending.files[i].first) + ".old"))
+        {
+            ::DeleteFileW(PendingPath().wc_str());
+            return false;
+        }
+    }
+    std::vector<wxString> moved, restored;      // what has been done so far, to undo it
+    bool ok = true;
+    for (size_t i = pending.files.size(); i > 0 && ok; --i)
+    {
+        // The new files go aside as X.bad (a running program can be renamed,
+        // not deleted); the old version deletes them when it starts.
+        const wxString target = Join(dir, pending.files[i - 1].first);
+        if (wxFileExists(target))
+        {
+            ok = MoveWithRetry(target, target + ".bad");
+            if (ok)
+            {
+                moved.push_back(target);
+            }
+        }
+        if (ok && pending.files[i - 1].second)
+        {
+            ok = RestoreOld(target);
+            if (ok)
+            {
+                restored.push_back(target);
+            }
+        }
+    }
+    if (!ok)
+    {
+        // Windows wouldn't let a file be moved: leave things as the update
+        // left them (the next start tries again), or say so if even that fails.
+        bool undone = true;
+        for (size_t i = 0; i < restored.size(); ++i)
+        {
+            undone = MoveWithRetry(restored[i], restored[i] + ".old", 50) && undone;
+        }
+        for (size_t i = 0; i < moved.size(); ++i)
+        {
+            undone = MoveWithRetry(moved[i] + ".bad", moved[i], 50) && undone;
+        }
+        if (undone)
+        {
+            return false;
+        }
+        ::DeleteFileW(PendingPath().wc_str());
+        wxMessageBox(kBrokenInstall, "Remote Play Whatever", wxOK | wxICON_ERROR);
+        return true;
+    }
+    ::DeleteFileW(PendingPath().wc_str());
+    wxConfigBase* config = wxConfigBase::Get();
+    if (config)
+    {
+        config->Write("/Options/RolledBackFrom", pending.to);
+        config->Flush();
+    }
+    // The old version waits for this copy to close before it opens.
+    StartNewCopy(Join(dir, wxFileName(ExePath()).GetFullName()), dir, arguments);
+    return true;
+#else
+    wxUnusedVar(arguments);
+    return false;
+#endif
+}
+
+void AppUpdater::UpdateTryInconclusive()
+{
+#if RPW_HAS_UPDATER
+    PendingUpdate pending;
+    if (wxFileExists(PendingPath()) && ReadPending(pending) && pending.tried)
+    {
+        pending.tried = false;
+        WritePending(pending);
+    }
+#endif
+}
+
+void AppUpdater::MarkStartedOK()
+{
+#if RPW_HAS_UPDATER
+    wxLogNull quiet;
+    if (wxFileExists(PendingPath()))
+    {
+        ::DeleteFileW(PendingPath().wc_str());
+        RemoveReplacedFiles(true, true);
+    }
+#endif
+}
+
+long AppUpdater::TakeRolledBackFrom()
+{
+    wxConfigBase* config = wxConfigBase::Get();
+    long build = 0;
+    if (config && config->Read("/Options/RolledBackFrom", &build))
+    {
+        config->DeleteEntry("/Options/RolledBackFrom");
+        config->Flush();
+    }
+    return build;
 }

@@ -97,6 +97,21 @@ public:
     // Remove what an update leaves behind (harmless when there's nothing).
     static void CleanUp();
 
+    // A safety net for updates that don't start: the files an update replaced
+    // stay (as X.old) until the new version has started properly. Called early
+    // at every start, before Steam is touched: if the last update's new version
+    // was already tried and never got that far, its files are put back, the old
+    // version is started (with arguments) and this returns true: this copy
+    // should quit. Otherwise this start becomes the try.
+    static bool RollBackFailedUpdate(const wxString& arguments);
+    // This start couldn't show whether the new version works (Steam wasn't
+    // running, say), so the next start tries again.
+    static void UpdateTryInconclusive();
+    // The new version works: remove the files it replaced.
+    static void MarkStartedOK();
+    // The build a rollback came back from (once; 0 if there was none).
+    static long TakeRolledBackFrom();
+
 private:
     enum Stage { StageInfo, StagePackage };
 

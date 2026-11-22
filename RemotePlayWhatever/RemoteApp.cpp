@@ -87,6 +87,16 @@ bool RemoteApp::OnInit()
     // Only one window at a time; a second launch brings the open one back
     // (from the tray, if it's hidden there). Command-line invites (one-shot
     // mode) can still run alongside it.
+    // What a version started by the updater needs to start the same way.
+    wxString arguments;
+    if (m_startMinimized)
+    {
+        arguments += " --minimized";
+    }
+    if (m_nonSteamID)
+    {
+        arguments += wxString::Format(" -a %u", (unsigned)m_nonSteamID);
+    }
     if (!m_oneshot)
     {
         m_singleInstance = new wxSingleInstanceChecker();
@@ -118,6 +128,15 @@ bool RemoteApp::OnInit()
         // The only copy running: remove what an earlier update left behind.
         AppUpdater::CleanUp();
         RefreshStartWithWindows();
+
+        // The last update's new version (this one, then) was tried and never
+        // started properly: put the version before it back and start that.
+        if (AppUpdater::RollBackFailedUpdate(arguments))
+        {
+            delete m_singleInstance;
+            m_singleInstance = nullptr;
+            return false;
+        }
     }
 
     bool steamReady = GClientContext()->Init();
@@ -126,7 +145,10 @@ bool RemoteApp::OnInit()
     if (!steamReady && !m_oneshot && m_startMinimized &&
         GClientContext()->InitError() != ClientContext::InitMethodsMissing)
     {
-        // Meanwhile, a copy opened by hand may take over (it gets the window).
+        // Meanwhile, a copy opened by hand may take over (it gets the window),
+        // and this one may be stopped (Windows shutting down): neither says
+        // anything about whether an update works, so it isn't being tried.
+        AppUpdater::UpdateTryInconclusive();
         delete m_singleInstance;
         m_singleInstance = nullptr;
         const wxLongLong giveUp = wxGetLocalTimeMillis() + 10 * 60 * 1000;
@@ -145,10 +167,24 @@ bool RemoteApp::OnInit()
         {
             return false;   // no Steam this time; nothing to complain about
         }
+        // Steam is here (or its functions changed): from now on this start is
+        // the update's try again, unless another copy found it failed meanwhile.
+        if (AppUpdater::RollBackFailedUpdate(arguments))
+        {
+            delete m_singleInstance;
+            m_singleInstance = nullptr;
+            return false;
+        }
     }
 
     if (!steamReady)
     {
+        // Steam not running or nobody signed in says nothing about whether a
+        // new version works (one that can't use this Steam's functions does).
+        if (!m_oneshot && GClientContext()->InitError() != ClientContext::InitMethodsMissing)
+        {
+            AppUpdater::UpdateTryInconclusive();
+        }
         wxString why;
         switch (GClientContext()->InitError())
         {
@@ -222,10 +258,20 @@ int RemoteApp::OnRun()
         }
         // Title bars, scroll bars and tooltips too, now that the windows exist.
         ApplySavedTheme();
+        // This version starts properly: an update to it is done (see
+        // AppUpdater::RollBackFailedUpdate).
+        AppUpdater::MarkStartedOK();
         // Started with Windows: stay in the tray until the host needs it.
         m_friendsList->Show(!(m_startMinimized && tray));
 
-        if (m_updatedFrom)
+        const long rolledBackFrom = AppUpdater::TakeRolledBackFrom();
+        if (rolledBackFrom > 0)
+        {
+            m_friendsList->ShowNotice(wxString::Format("Build %ld didn't start properly, so Remote Play Whatever went back "
+                                                       "to build %ld.", rolledBackFrom, AppUpdater::CurrentBuild()),
+                                      FriendsListFrame::NoticeWarning);
+        }
+        else if (m_updatedFrom)
         {
             m_friendsList->ShowNotice(wxString::Format("Updated to build %ld.", AppUpdater::CurrentBuild()));
         }
