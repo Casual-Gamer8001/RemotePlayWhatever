@@ -2,7 +2,7 @@
 
 Start Steam **Remote Play Together** with any game: Steam games that don't support it, and non-Steam games such as emulators that you've added to Steam. Invite Steam friends, or send a **guest link** that anyone can use, even without a Steam account.
 
-This is Casual-Gamer8001's fork of [m4dEngi's RemotePlayWhatever](https://github.com/m4dEngi/RemotePlayWhatever). It works with current Steam clients, and it adds a redesigned window, guest controls, QR codes for guest links, automatic updates on Windows, and a Linux / Steam Deck and macOS version. See [What this fork adds](#what-this-fork-adds).
+This is Casual-Gamer8001's fork of [m4dEngi's RemotePlayWhatever](https://github.com/m4dEngi/RemotePlayWhatever). It works with current Steam clients, and it adds a redesigned window, guest controls, QR codes for guest links, **Share my screen** for games Steam can't start, automatic updates on Windows, a Linux and macOS version, and a Steam Deck Game Mode plugin. See [What this fork adds](#what-this-fork-adds).
 
 <p align="center">
     <img src="assets/rpw_screen.png" alt="Remote Play Whatever, ready to share RetroArch" width="480">
@@ -15,7 +15,8 @@ Get the newest version from the [latest release](https://github.com/Casual-Gamer
 | System | File | Notes |
 |---|---|---|
 | Windows 10 or 11 (64-bit) | `RemotePlayWhatever-win64.zip` | Everything it needs is included. Updates itself. |
-| Steam Deck and other Linux PCs (x86-64) | `RemotePlayWhatever-linux-x86_64.AppImage` | One file. Use it in Desktop Mode on the Steam Deck. |
+| Steam Deck and other Linux PCs (x86-64) | `RemotePlayWhatever-linux-x86_64.AppImage` | One file. On the Steam Deck: Desktop Mode, or Game Mode with the plugin below. |
+| Steam Deck Game Mode | `RemotePlayWhatever-decky.zip` | A [Decky Loader](https://decky.xyz) plugin: the app in the Quick Access Menu. New: not yet tested on a real Steam Deck. |
 | macOS 11 or later (Intel or Apple Silicon) | `RemotePlayWhatever-macos.zip` | Experimental: not yet tested with a real Mac. |
 
 ### Windows
@@ -24,12 +25,21 @@ Get the newest version from the [latest release](https://github.com/Casual-Gamer
 3. From then on it keeps itself up to date (see [Updates](#updates)).
 
 ### Steam Deck
+**In Game Mode, with the Decky plugin.** The plugin is new and hasn't been tested on a real Steam Deck yet; please [open an issue](https://github.com/Casual-Gamer8001/RemotePlayWhatever/issues) to say how it goes.
+1. Install [Decky Loader](https://decky.xyz): in Desktop Mode, download its installer and run it, then switch back to Game Mode.
+2. Turn on Decky's developer mode: press **···** (Quick Access), open Decky (the plug icon), select the gear, and under **General** turn on **Developer mode**.
+3. In Decky's settings, open **Developer** and, under **Install Plugin from URL**, enter `https://github.com/Casual-Gamer8001/RemotePlayWhatever/releases/latest/download/RemotePlayWhatever-decky.zip`, then select **Install**. (Or download that file and use **Install Plugin from ZIP File**.)
+4. Press **···** and open **Remote Play Whatever**. The first time, select **Download**: it fetches the app itself (the AppImage) from the latest release. If the AppImage is already in your `Applications`, `Downloads` or `Desktop` folder, the plugin uses that one instead.
+
+Then start your game from your library as usual, press **···**, open **Remote Play Whatever**, and invite a friend or create a guest link there (with a QR code to scan). The plugin runs Remote Play Whatever in the background, not as a game, so Game Mode doesn't freeze when it stops. See the [plugin's own page](decky/README.md) for its settings and how it works.
+
+Don't add the AppImage to Steam as a non-Steam game to start it in Game Mode: closing it there can freeze Steam until the Deck restarts ([upstream issue #69](https://github.com/m4dEngi/RemotePlayWhatever/issues/69)). The plugin is there to avoid that.
+
+**In Desktop Mode:**
 1. Switch to Desktop Mode: press the Steam button, then **Power > Switch to Desktop**.
 2. Download `RemotePlayWhatever-linux-x86_64.AppImage`, for example into a new `Applications` folder in your home folder.
 3. Right-click the file, choose **Properties > Permissions** and tick **Is executable** (or run `chmod +x RemotePlayWhatever-linux-x86_64.AppImage` in Konsole).
-4. Make sure Steam is running and signed in (it is in Desktop Mode), then double-click the AppImage.
-
-Start the game from Steam in Desktop Mode too. Some people add the AppImage to Steam as a non-Steam game and use it from Game Mode, but closing it there can freeze Steam until the Deck restarts ([upstream issue #69](https://github.com/m4dEngi/RemotePlayWhatever/issues/69)), so Desktop Mode is the safe choice.
+4. Make sure Steam is running and signed in (it is in Desktop Mode), then double-click the AppImage, and start the game from Steam in Desktop Mode too.
 
 ### Other Linux PCs
 Use the same AppImage: mark it executable and run it while the Steam client is running. It needs a 64-bit PC with glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedora 36, Arch and newer) and a desktop with X11 or XWayland. It works with the usual Steam installs (in `~/.steam` or `~/.local/share/Steam`). The Flatpak version of Steam keeps its files inside its sandbox, so it probably won't work with that.
@@ -45,7 +55,7 @@ The macOS version is new and hasn't been tested with a real Mac yet. Please [ope
 ## How to use
 1. Start Steam and sign in.
 2. Open Remote Play Whatever.
-3. Start your game **through Steam**: from your Steam library, or with **Play** next to it under *Recent games* in Remote Play Whatever. A non-Steam game, such as an emulator, has to be added to Steam first (**Games > Add a Non-Steam Game to My Library**) and started from Steam.
+3. Start your game **through Steam**: from your Steam library, or with **Play** next to it under *Recent games* in Remote Play Whatever. A non-Steam game, such as an emulator, can be added to Steam (**Games > Add a Non-Steam Game to My Library**) and started from Steam. For a game Steam can't start, such as one from the Xbox app (Game Pass) or another launcher, click **Share my screen** instead, wait for *Ready to share your screen*, then start the game the usual way.
 4. Invite someone:
     - **Invite** next to a friend sends them Steam's own Remote Play Together invite, which shows up in their Steam chat. While you wait for them, **Copy link** next to "Waiting for *name*" gives you a link to send them another way, in case Steam's invite doesn't reach them.
     - **Create guest link** copies a link you can paste anywhere. Anyone can join with it, even without a Steam account: they open it and play through the free Steam Link app on a phone, tablet, computer or TV. Each link lets one person in, so **New guest link** makes another one.
@@ -53,7 +63,7 @@ The macOS version is new and hasn't been tested with a real Mac yet. Please [ope
 5. Switch back to your game and play. To choose who can use the keyboard, mouse or a controller, open the guest controls window (**Session > Show guest controls**) or use the [in-game shortcuts](#in-game-shortcuts).
 6. When you're done, **End session** disconnects everyone and stops sharing. Closing the game does the same.
 
-Only the game's window is shared for a Steam game. For a **non-Steam game**, Steam shares your **whole screen**: Remote Play Whatever asks first (tick **Don't ask again** for a game you trust), and on Windows it keeps its own windows, including the guest link, out of what your guests see.
+Only the game's window is shared for a Steam game. For a **non-Steam game**, Steam shares your **whole screen**: Remote Play Whatever asks first (tick **Don't ask again** for a game you trust), and on Windows it keeps its own windows, including the guest link, out of what your guests see. **Share my screen** always shares the whole screen; **Stop sharing my screen** or **End session** stops it.
 
 ## What this fork adds
 **Works with current Steam**
@@ -66,6 +76,7 @@ Only the game's window is shared for a Steam game. For a **non-Steam game**, Ste
 - The game you're sharing is shown at the top of the window with its picture from your Steam library, what your guests will see, and the guest link and session buttons.
 - With no game running, the games you played lately (Steam games and non-Steam games) are listed with a **Play** button that starts them through Steam.
 - Non-Steam games are shown by name, and sharing stops by itself when the game closes, so guests don't keep seeing your screen.
+- **Share my screen** for games Steam can't start, such as Xbox app and Game Pass games or games from other launchers: Steam runs a small stand-in (a temporary non-Steam game that Steam forgets when it restarts) while you play, so Remote Play Together can share your whole screen.
 - Guest links are clickable, can be shown as a QR code, and invites nobody has used yet are listed with a **Cancel** button each. **End session** disconnects everyone and cancels every unused invite and link.
 - While you're sharing, the window says for how long (for example "Sharing · 2 guests connected · 25 min") and shows "*name* joined." or "*name* left." when guests come and go.
 - Short messages in the window (invite sent, link copied, why a session ended) instead of pop-ups.
@@ -89,6 +100,9 @@ Only the game's window is shared for a Steam game. For a **non-Steam game**, Ste
 - Two columns when the window is wide, sharp text on high-DPI screens, and the window opens where you left it.
 - Only one copy runs at a time: opening it again brings the open window back.
 - A tray icon (on macOS, in the menu bar at the top of the screen). Minimizing hides the window there, its menu has the session buttons and options, and a green dot means a session is on. On Windows, **Start with Windows** opens the app in the tray when you sign in; it waits for Steam to start.
+
+**Steam Deck**
+- A [Decky Loader](https://decky.xyz) plugin for Game Mode: the game you're playing, guest links with QR codes, friend invites, guest controls and **End session**, all in the Quick Access Menu. It runs the app in the background (`--serve`), so it's never a second game and Game Mode doesn't freeze when it stops.
 
 ### Updates
 On Windows the app keeps itself up to date from this fork's releases:
@@ -122,23 +136,39 @@ A shortcut is left out if your keyboard layout uses that key combination to type
 -g, --guestid=<number> The guest id of the invite to cancel
     --minimized        Start hidden in the tray, waiting for Steam if it isn't running yet
                        (what Start with Windows uses)
+    --serve            Run without a window, taking commands and reporting events as
+                       JSON lines on standard input and output (what the Steam Deck
+                       plugin uses; see docs/serve-protocol.md)
 -v, --verbose          Verbose output
 -h, --help             Show these options
 ```
 
 ## Troubleshooting
 - **"Steam isn't running" or "nobody is signed in"**: start Steam, sign in, then open the app again.
-- **"Start a game through Steam first"**: the game has to be started from Steam, or with **Play** in the app, so that Steam knows it's running.
+- **"Start a game through Steam first"**: the game has to be started from Steam, or with **Play** in the app, so that Steam knows it's running. For a game Steam can't start, use **Share my screen**.
+- **A game from the Xbox app, Game Pass or another launcher isn't found**: Steam only knows about games it starts itself. Click **Share my screen**, wait for *Ready to share your screen*, then start the game.
+- **"Steam didn't start the screen share"**: restart Steam and try again.
 - **Your guest can only watch**: Steam didn't set up a Remote Play group for the game. Quit the game, start it again through Steam, and send a new invite.
 - **"Steam doesn't send Remote Play Together invites while you're Invisible"**: set your Steam status to Online, or send a guest link instead.
 - **Your friend didn't get the invite**: use **Copy link** next to "Waiting for *name*" and send them the link another way.
 - **Your guest sees your whole screen**: that's how Steam shares a non-Steam game. Steam games share only their own window.
+- **Your guests hear no sound**:
+    - Steam sends your guests the sound of your **default playback device**. If the game or emulator plays through another device (a headset, a monitor's speakers), choose the default device in its audio settings, or make that device the default in your system's sound settings.
+    - On Windows, a game that takes **exclusive control** of the sound device bypasses Steam. Turn exclusive mode off in the game or emulator (in RetroArch: **Settings > Audio > Output > WASAPI Exclusive Mode**), or for the device: **Control Panel > Sound**, the device's **Properties > Advanced**, untick **Allow applications to take exclusive control of this device**.
+    - Ask your guest to check the volume on their device and in the Steam Link app.
 - **A Steam update broke the app**: the app says so when it starts and, on Windows, offers a fixed version as soon as there is one. Otherwise check the [releases page](https://github.com/Casual-Gamer8001/RemotePlayWhatever/releases) or [open an issue](https://github.com/Casual-Gamer8001/RemotePlayWhatever/issues).
 - **Sharing doesn't stop after a session ends**: restart Steam.
 - **Reporting a problem**: on Windows, put an empty file named `rpw-debug.log` next to `RemotePlayWhatever.exe` and open the app again. It then writes what it does with Steam (invites, groups, guests joining) into that file; attach it to your [issue](https://github.com/Casual-Gamer8001/RemotePlayWhatever/issues), and delete the file to stop. (On Linux and macOS, start the app from a terminal with `RPW_VTDEBUG=1` set.)
 
+## Uninstalling
+Remote Play Whatever has no installer, so there's little to remove:
+- **Windows**: if **Options > Start with Windows** is on, turn it off. Quit the app (**File > Exit**) and delete its folder. To remove its settings too, run `reg delete HKCU\Software\RemotePlayWhatever /f` in a Command Prompt. (If you deleted the folder while Start with Windows was on, `reg delete HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v RemotePlayWhatever /f` removes that entry.)
+- **Steam Deck and other Linux PCs**: quit the app and delete the AppImage. Its settings are in the hidden file `~/.RemotePlayWhatever`. If you added the AppImage to Steam, remove it from your library (**Manage > Remove non-Steam game from your library**).
+- **The Decky plugin**: in Decky's settings, under **Plugins**, uninstall **Remote Play Whatever**. The AppImage it downloaded stays in `~/homebrew/data/RemotePlayWhatever` and its settings in `~/homebrew/settings/RemotePlayWhatever`; delete those folders too.
+- **macOS**: quit the app and move **Remote Play Whatever** from Applications to the Bin. Its settings are in `~/Library/Preferences/RemotePlayWhatever Preferences`.
+
 ## How it works
-Remote Play Whatever talks to your running Steam client over Steam's own local connection and asks it to start a Remote Play Together session for the game that's running. It doesn't change any files. It uses Steam's internal, undocumented functions, the same ones the Steam client uses itself.
+Remote Play Whatever talks to your running Steam client over Steam's own local connection and asks it to start a Remote Play Together session for the game that's running. It doesn't change any files. It uses Steam's internal, undocumented functions, the same ones the Steam client uses itself. **Share my screen** adds a temporary non-Steam game that starts Remote Play Whatever again in the background, as a stand-in that does nothing until you stop sharing; Steam forgets it when it restarts.
 
 > [!WARNING]
 > - Because these internal functions aren't meant for other programs, a Steam update **can break the app** without warning. This fork looks them up by name to survive most updates, but nothing can promise that.
@@ -192,6 +222,7 @@ The app is `build/RemotePlayWhatever/RemotePlayWhatever.app`.
 - [Rammy-3](https://github.com/Rammy-3/RemotePlayWhatever) for Steam-style friend invites in the game's own Remote Play group, the debug log and the Visual Studio 2022 build fix.
 - [Open Steamworks](https://github.com/m4dEngi/open-steamworks) for the Steam client interfaces, and [wxWidgets](https://www.wxwidgets.org/) for the window.
 - Project Nayuki's [QR Code generator library](https://www.nayuki.io/page/qr-code-generator-library) (MIT License).
+- The Steam Deck plugin is built on [Decky Loader](https://decky.xyz)'s [plugin template](https://github.com/SteamDeckHomebrew/decky-plugin-template) (BSD 3-Clause License) and uses Kazuhiko Arase's [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) and [react-icons](https://github.com/react-icons/react-icons) (MIT License); see [its licence file](decky/LICENSE).
 
 Remote Play Whatever is released under the [MIT License](LICENSE). It isn't made by or affiliated with Valve; Steam and Remote Play Together are trademarks of Valve Corporation.
 
