@@ -47,6 +47,7 @@
 
 #if defined(_WIN32)
     #include <windows.h>
+    #include <share.h>
 #elif defined(__APPLE__)
     #include <dlfcn.h>
     #include <mach-o/loader.h>
@@ -59,13 +60,58 @@ namespace clientvt
 {
     // Opt-in diagnostics: set env RPW_VTDEBUG=1 to log the resolver's view of
     // the module (segments, scan progress, resolved names/indices) to stderr.
-    // Off by default and effectively zero cost.
+    // On Windows it's also on when a file named rpw-debug.log already exists
+    // next to the program, and the log then goes into that file too (a GUI
+    // build has no console to show stderr), so a log can be collected however
+    // the app is started. Off by default and effectively zero cost.
+#if defined(_WIN32)
+    // rpw-debug.log next to the program (empty if the path can't be had).
+    inline std::wstring DebugLogPath()
+    {
+        wchar_t path[MAX_PATH];
+        const DWORD n = ::GetModuleFileNameW(NULL, path, MAX_PATH);
+        if (n == 0 || n >= MAX_PATH)
+            return std::wstring();
+        const std::wstring exe(path, n);
+        const size_t slash = exe.find_last_of(L"\\/");
+        return slash == std::wstring::npos ? std::wstring() : exe.substr(0, slash + 1) + L"rpw-debug.log";
+    }
+#endif
+
     inline bool DebugEnabled()
     {
         static int on = -1;
         if (on < 0)
+        {
             on = (std::getenv("RPW_VTDEBUG") != NULL) ? 1 : 0;
+#if defined(_WIN32)
+            if (!on)
+            {
+                const std::wstring log = DebugLogPath();
+                on = (!log.empty() && ::GetFileAttributesW(log.c_str()) != INVALID_FILE_ATTRIBUTES) ? 1 : 0;
+            }
+#endif
+        }
         return on != 0;
+    }
+
+    // Windows: rpw-debug.log, appended to on every run (and readable while
+    // the app runs); null where there's no such file. It's never created here,
+    // so RPW_VTDEBUG on its own doesn't leave logging on for later runs.
+    inline std::FILE* LogFile()
+    {
+        static std::FILE* file = nullptr;
+        static bool tried = false;
+        if (!tried)
+        {
+            tried = true;
+#if defined(_WIN32)
+            const std::wstring log = DebugLogPath();
+            if (!log.empty() && ::GetFileAttributesW(log.c_str()) != INVALID_FILE_ATTRIBUTES)
+                file = ::_wfsopen(log.c_str(), L"a", _SH_DENYNO);
+#endif
+        }
+        return file;
     }
 
     inline void Log(const char* fmt, ...)
@@ -77,6 +123,19 @@ namespace clientvt
         std::vfprintf(stderr, fmt, ap);
         va_end(ap);
         std::fflush(stderr);
+        if (std::FILE* file = LogFile())
+        {
+#if defined(_WIN32)
+            SYSTEMTIME now;
+            ::GetLocalTime(&now);
+            std::fprintf(file, "[%02u:%02u:%02u.%03u] ", (unsigned)now.wHour, (unsigned)now.wMinute,
+                         (unsigned)now.wSecond, (unsigned)now.wMilliseconds);
+#endif
+            va_start(ap, fmt);
+            std::vfprintf(file, fmt, ap);
+            va_end(ap);
+            std::fflush(file);
+        }
     }
 
     // A single mapped, readable address range within a module.
