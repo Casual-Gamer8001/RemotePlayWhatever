@@ -63,7 +63,7 @@ The macOS version is new and hasn't been tested with a real Mac yet. Please [ope
 5. Switch back to your game and play. To choose who can use the keyboard, mouse or a controller, open the guest controls window (**Session > Show guest controls**) or use the [in-game shortcuts](#in-game-shortcuts).
 6. When you're done, **End session** disconnects everyone and stops sharing. Closing the game does the same.
 
-Only the game's window is shared for a Steam game. For a **non-Steam game**, Steam shares your **whole screen**: Remote Play Whatever asks first (tick **Don't ask again** for a game you trust), and on Windows it keeps its own windows, including the guest link, out of what your guests see. **Share my screen** always shares the whole screen; **Stop sharing my screen** or **End session** stops it.
+Only the game's window is shared for a Steam game. For a **non-Steam game**, Steam shares your **whole screen**: Remote Play Whatever asks first (tick **Don't ask again** for a game you trust), and on Windows it keeps its own windows, including the guest link, out of what your guests see. **Share my screen** always shares the whole screen, but not its sound; **Stop sharing my screen** or **End session** stops it.
 
 ## What this fork adds
 **Works with current Steam**
@@ -76,7 +76,7 @@ Only the game's window is shared for a Steam game. For a **non-Steam game**, Ste
 - The game you're sharing is shown at the top of the window with its picture from your Steam library, what your guests will see, and the guest link and session buttons.
 - With no game running, the games you played lately (Steam games and non-Steam games) are listed with a **Play** button that starts them through Steam.
 - Non-Steam games are shown by name, and sharing stops by itself when the game closes, so guests don't keep seeing your screen.
-- **Share my screen** for games Steam can't start, such as Xbox app and Game Pass games or games from other launchers: Steam runs a small stand-in (a temporary non-Steam game that Steam forgets when it restarts) while you play, so Remote Play Together can share your whole screen.
+- **Share my screen** for games Steam can't start, such as Xbox app and Game Pass games or games from other launchers: Steam runs a small stand-in (a temporary non-Steam game that Steam forgets when it restarts) while you play, so Remote Play Together can share your whole screen. Guests don't hear it, because Steam only sends the sound of a game it started.
 - Guest links are clickable, can be shown as a QR code, and invites nobody has used yet are listed with a **Cancel** button each. **End session** disconnects everyone and cancels every unused invite and link.
 - While you're sharing, the window says for how long (for example "Sharing · 2 guests connected · 25 min") and shows "*name* joined." or "*name* left." when guests come and go.
 - Short messages in the window (invite sent, link copied, why a session ended) instead of pop-ups.
@@ -153,7 +153,9 @@ A shortcut is left out if your keyboard layout uses that key combination to type
 - **Your friend didn't get the invite**: use **Copy link** next to "Waiting for *name*" and send them the link another way.
 - **Your guest sees your whole screen**: that's how Steam shares a non-Steam game. Steam games share only their own window.
 - **Your guests hear no sound**:
-    - Steam sends your guests the sound of your **default playback device**. If the game or emulator plays through another device (a headset, a monitor's speakers), choose the default device in its audio settings, or make that device the default in your system's sound settings.
+    - Steam sends your guests the sound of the game it's sharing, recorded inside the game. With a non-Steam game, that's only while its window is in front: when you click another window, guests see your whole screen with no sound until you go back to the game.
+    - With **Share my screen**, guests hear nothing: Steam only sends the sound of a game it started, and here that's the stand-in, not your game. If you can add the game to Steam (**Games > Add a Non-Steam Game to My Library**) and start it with **Play**, Steam sends its sound.
+    - Steam records the game's sound through the Steam overlay, so keep it on: in Steam's **Settings > In game**, and in the game's **Properties > General**, tick **Enable the Steam Overlay while in-game**.
     - On Windows, a game that takes **exclusive control** of the sound device bypasses Steam. Turn exclusive mode off in the game or emulator (in RetroArch: **Settings > Audio > Output > WASAPI Exclusive Mode**), or for the device: **Control Panel > Sound**, the device's **Properties > Advanced**, untick **Allow applications to take exclusive control of this device**.
     - Ask your guest to check the volume on their device and in the Steam Link app.
 - **A Steam update broke the app**: the app says so when it starts and, on Windows, offers a fixed version as soon as there is one. Otherwise check the [releases page](https://github.com/Casual-Gamer8001/RemotePlayWhatever/releases) or [open an issue](https://github.com/Casual-Gamer8001/RemotePlayWhatever/issues).

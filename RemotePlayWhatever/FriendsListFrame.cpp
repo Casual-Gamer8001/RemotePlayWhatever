@@ -1213,12 +1213,14 @@ void FriendsListFrame::UpdateStatus()
         {
             state += Ui::Separator() + length;
         }
-        detail = desktop ? "Guests can see your whole screen" : "Only the game is shared, not your screen";
+        detail = ourScreen ? "Guests can see your whole screen but can't hear it" :
+                 desktop ? "Guests can see your whole screen" : "Only the game is shared, not your screen";
         detailColour = desktop ? &Ui::kWarnText : &Ui::kTextSecondary;
         dot = Ui::kGood;
         trayText = "Sharing " + gameInText + (sessionMinutes >= 1 ? " for " + length : wxString()) + ": " +
                    (guests == 0 ? wxString("waiting for guests to join.") : who + ".") +
-                   (desktop ? " Guests can see your whole screen." : "");
+                   (ourScreen ? " Guests can see your whole screen but can't hear it." :
+                    desktop ? " Guests can see your whole screen." : "");
     }
     else if (screenStarting)
     {
@@ -1243,7 +1245,7 @@ void FriendsListFrame::UpdateStatus()
     {
         state = "Ready to share your screen";
         detail = "Start your game now (from the Xbox app, Epic or anywhere), then invite someone. "
-                 "Guests will see your whole screen.";
+                 "Guests will see your whole screen but won't hear it.";
         detailColour = &Ui::kWarnText;
         dot = Ui::kGood;
         trayText = "Ready to share your screen: start your game, then invite someone.";
@@ -1364,7 +1366,8 @@ void FriendsListFrame::UpdateStatus()
     m_screenButton->Enable(!screenStarting);
     const wxString screenTip = ourScreen ? wxString("Stop sharing your screen (Steam stops the placeholder game).") :
         wxString("For a game Steam doesn't run (from the Xbox app, Epic, ...): Steam starts a placeholder game so "
-                 "Remote Play can share your whole screen. Start your game yourself afterwards.");
+                 "Remote Play can share your whole screen. Start your game yourself afterwards. Guests won't hear "
+                 "it: Steam only sends them the sound of a game it started.");
     if (m_screenButton->GetToolTipText() != screenTip)
     {
         m_screenButton->SetToolTip(screenTip);
