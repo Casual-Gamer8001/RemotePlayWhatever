@@ -201,6 +201,9 @@ public:
     ISteamUser019* SteamUser();
     ISteamFriends015* SteamFriends();
     ISteamUtils009* SteamUtils();
+    // Steam's public Remote Play interface: which Remote Play clients are
+    // connected right now (null if this Steam doesn't offer it).
+    ISteamRemotePlay001* SteamRemotePlay();
 
     // Steam's name for any game it has information about (including ones that
     // aren't installed here), or empty. Uses the public SteamApps001 interface.
@@ -226,6 +229,7 @@ private:
     ISteamFriends015* m_pSteamFriends;
     ISteamUtils009* m_pSteamUtils;
     ISteamApps001* m_pSteamApps001;
+    ISteamRemotePlay001* m_pSteamRemotePlay;
 
     IClientEngine* m_pClientEngine;
     CRemoteClientManagerByName m_remoteManager;

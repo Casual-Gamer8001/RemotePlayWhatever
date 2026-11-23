@@ -7,15 +7,34 @@
 #include <string>
 #include <vector>
 
+// Steam's public Remote Play callbacks (ISteamRemotePlay, which Open
+// Steamworks doesn't declare these for): a Remote Play client connected to this
+// PC, or disconnected. They're how a guest coming in with a guest link is
+// noticed: the Remote Play manager reports that guest's stream when the link is
+// made, not when someone uses it.
+struct SteamRemotePlaySessionConnected_t
+{
+    enum { k_iCallback = 5701 };
+    uint32 m_unSessionID;
+};
+
+struct SteamRemotePlaySessionDisconnected_t
+{
+    enum { k_iCallback = 5702 };
+    uint32 m_unSessionID;
+};
+
 // A guest that has connected to our Remote Play Together session. We remember
-// the exact RemotePlayPlayer_t Steam handed us on connect (correct SteamID,
-// guest id and group id) plus the per-peripheral control state the host wants.
+// the exact RemotePlayPlayer_t Steam handed us for their stream (correct
+// SteamID, guest id and group id) plus the per-peripheral control state the
+// host wants.
 struct ConnectedGuest
 {
     RemotePlayPlayer_t player;
     uint64 key;         // unique per guest, see RemotePlayInviteHandler::GuestKey
     uint64 steamID;     // 0 for Steam Link guests who joined without a Steam account
     uint32 sessionID;   // Steam's streaming session for this guest
+    int missingChecks;  // times in a row Steam's list of connected clients didn't have them
     bool wantKbd;
     bool wantMouse;
     bool wantCtrl;
@@ -81,6 +100,7 @@ public:
     void EndSession();
     // GUI timer tick (~200ms): when the game the session is for closes, end the
     // session, so guests of a non-Steam game don't keep seeing the desktop.
+    // Also notices guests coming and going (see SyncConnectedGuests).
     void SessionTick();
     // One-off message for the UI (e.g. why a session ended), cleared on read.
     std::string TakeNotice();
@@ -125,9 +145,10 @@ public:
     void TakeAllControl();
     void GiveBackControl();
 
-    // Guests with a Steam account are identified by their SteamID. Steam Link
-    // guests without an account all report SteamID 0, so they're identified by
-    // their guest slot instead (a value that can never be a real SteamID).
+    // Guests with a Steam account are identified by their SteamID. Guests who
+    // came in with a guest link have no account (a placeholder SteamID of
+    // account 0), so they're identified by their guest slot instead (a value
+    // that can never be a real SteamID).
     static uint64 GuestKey(const RemotePlayPlayer_t& player);
     // Bumped whenever the roster or anyone's control changes, so the UI can
     // tell when to rebuild itself.
@@ -138,6 +159,16 @@ public:
 
 private:
     void ApplyGuest(const ConnectedGuest& g);
+
+    // Guests are the Remote Play clients Steam says are connected (its public
+    // ISteamRemotePlay list) whose stream belongs to an invite of this
+    // session. Compares the two at most once a second (now: right away) and
+    // adds or removes guests to match. Also turns whole-screen sharing back on
+    // when Steam has turned it off.
+    void SyncConnectedGuests(bool now);
+    void AddGuest(const RemotePlayPlayer_t& player, uint32 sessionID);
+    // A guest's stream ended: they're gone (by themselves, or removed).
+    void GuestLeft(uint32 sessionID, const RemotePlayPlayer_t* player);
 
     // Async group creation. Stock RPW hardcodes groupID=1 without ever creating
     // a group; we create/settle one first, then fire the queued invite(s).
@@ -184,12 +215,20 @@ private:
     std::vector<ConnectedGuest> m_guests;
     uint32 m_rosterRevision;
     uint32 m_sessionEnds;
+    // The stream Steam started for each invite of this session, by streaming
+    // session: a friend's, or a guest link's (made when the link is made,
+    // used once someone comes in with it).
+    std::map<uint32, RemotePlayPlayer_t> m_sessionPlayers;
+    long long m_lastGuestSync;  // when SyncConnectedGuests last looked (ms)
 
     void ResetSession();
 
     STEAM_CALLBACK(RemotePlayInviteHandler, OnRemotePlayStart, RemoteClientStartStreamSession_t, m_remoteStartCb);
     STEAM_CALLBACK(RemotePlayInviteHandler, OnRemotePlayStop, RemoteClientStopStreamSession_t, m_remoteStopCb);
     STEAM_CALLBACK(RemotePlayInviteHandler, OnRemotePlayInviteResult, RemotePlayInviteResult_t, m_remoteInviteResultCb);
+    STEAM_CALLBACK(RemotePlayInviteHandler, OnSessionConnected, SteamRemotePlaySessionConnected_t, m_sessionConnectedCb);
+    STEAM_CALLBACK(RemotePlayInviteHandler, OnSessionDisconnected, SteamRemotePlaySessionDisconnected_t,
+                   m_sessionDisconnectedCb);
 };
 
 #endif // REMOTEPLAYINVITEHANDLER_H

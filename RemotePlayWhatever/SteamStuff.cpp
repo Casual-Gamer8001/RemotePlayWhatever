@@ -13,6 +13,7 @@ ClientContext::ClientContext():
     m_pSteamFriends(nullptr),
     m_pSteamUtils(nullptr),
     m_pSteamApps001(nullptr),
+    m_pSteamRemotePlay(nullptr),
     m_pClientEngine(nullptr),
     m_shortcutsTried(false),
     m_ShuttingDown(false),
@@ -106,6 +107,12 @@ bool ClientContext::Init()
     // kept for old games, still reads Steam's own information about any app.
     m_pSteamApps001 = (ISteamApps001*)m_pSteamClient->GetISteamApps(m_hUser, m_hPipe, STEAMAPPS_INTERFACE_VERSION_001);
 
+    // Optional too: which Remote Play clients are connected. A guest who comes
+    // in with a guest link is only reported here (the Remote Play manager's
+    // stream-start callback comes when the link is made, not when it's used).
+    m_pSteamRemotePlay = (ISteamRemotePlay001*)m_pSteamClient->GetISteamRemotePlay(m_hUser, m_hPipe,
+                                                                                   STEAMREMOTEPLAY_INTERFACE_VERSION);
+
     m_pClientEngine = (IClientEngine*)SteamInternal_CreateInterface(CLIENTENGINE_INTERFACE_VERSION);
     if (!m_pClientEngine)
     {
@@ -190,6 +197,11 @@ ISteamFriends015* ClientContext::SteamFriends()
 ISteamUtils009 *ClientContext::SteamUtils()
 {
     return m_pSteamUtils;
+}
+
+ISteamRemotePlay001* ClientContext::SteamRemotePlay()
+{
+    return m_pSteamRemotePlay;
 }
 
 std::string ClientContext::AppName(AppId_t appID)

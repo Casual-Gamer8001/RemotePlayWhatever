@@ -1,3 +1,4 @@
+#include <chrono>
 #include <cstdlib>
 #include <ctime>
 #include <iostream>
@@ -5,6 +6,10 @@
 #include "RemotePlayInviteHandler.h"
 #include "UiHelpers.h"
 #include "GameProcess.h"
+
+// Made-up guests of throwaway test builds have this streaming session, which
+// Steam never uses.
+static const uint32 kFakeGuestSession = 0xFFFFFFFF;
 
 RemotePlayInviteHandler::RemotePlayInviteHandler() :
     m_enabledDesktopStreaming(false),
@@ -27,9 +32,12 @@ RemotePlayInviteHandler::RemotePlayInviteHandler() :
     m_sessionGameGoneTicks(0),
     m_rosterRevision(0),
     m_sessionEnds(0),
+    m_lastGuestSync(0),
     m_remoteStartCb(this, &RemotePlayInviteHandler::OnRemotePlayStart),
     m_remoteStopCb(this, &RemotePlayInviteHandler::OnRemotePlayStop),
-    m_remoteInviteResultCb(this, &RemotePlayInviteHandler::OnRemotePlayInviteResult)
+    m_remoteInviteResultCb(this, &RemotePlayInviteHandler::OnRemotePlayInviteResult),
+    m_sessionConnectedCb(this, &RemotePlayInviteHandler::OnSessionConnected),
+    m_sessionDisconnectedCb(this, &RemotePlayInviteHandler::OnSessionDisconnected)
 {
 }
 
@@ -90,13 +98,15 @@ void RemotePlayInviteHandler::SendInvite(CSteamID invitee)
     m_sessionGame = gameID.ToUint64();
     m_sessionGameGoneTicks = 0;
 
-    if (desktop && !m_enabledDesktopStreaming)
+    CRemoteClientManagerByName* rcm = GClientContext()->RemoteClientManager();
+
+    // Steam turns whole-screen sharing off again when the last guest's stream
+    // ends, so it's checked, not just remembered.
+    if (desktop && (!m_enabledDesktopStreaming || !rcm->BStreamingDesktopToRemotePlayTogetherEnabled()))
     {
-        GClientContext()->RemoteClientManager()->SetStreamingDesktopToRemotePlayTogetherEnabled(true);
+        rcm->SetStreamingDesktopToRemotePlayTogetherEnabled(true);
         m_enabledDesktopStreaming = true;
     }
-
-    CRemoteClientManagerByName* rcm = GClientContext()->RemoteClientManager();
 
     // The game's process, which Steam's overlay looks its group up by (a second
     // way to find the group, and for diagnostics). Finding it reads every
@@ -379,6 +389,8 @@ void RemotePlayInviteHandler::ResetSession()
     m_linkURLs.clear();
     m_takenLinks.clear();
     m_friendLinks.clear();
+    m_sessionPlayers.clear();
+    m_lastGuestSync = 0;
     ++m_rosterRevision;
 }
 
@@ -395,6 +407,9 @@ void RemotePlayInviteHandler::RemoveGuest(uint64 key)
         ConnectedGuest g = m_guests[i];
         m_guests.erase(m_guests.begin() + i);
         ++m_rosterRevision;
+        // So Steam's list of connected clients, which may still have them for
+        // a moment, doesn't bring them back.
+        m_sessionPlayers.erase(g.sessionID);
 
         if (g.sessionID)
         {
@@ -545,6 +560,8 @@ void RemotePlayInviteHandler::SessionTick()
     {
         return;
     }
+
+    SyncConnectedGuests(false);
 
     CGameID running = GetRunningGameID();
     if (running.IsValid() && running.ToUint64() == m_sessionGame)
@@ -747,17 +764,18 @@ uint64 RemotePlayInviteHandler::GuestKey(const RemotePlayPlayer_t& player)
     return 0xFFFFFFFF00000000ULL | player.m_unGuestID;
 }
 
-// A guest connected. Steam hands us their real RemotePlayPlayer_t (SteamID,
-// guest id, group id) in the callback, so we can grant control immediately.
+// Steam started a stream for one of our invites. For a guest link that's when
+// the link is made, not when someone comes in with it (and a friend's may come
+// before they accept), so this only notes whose stream it is; the guest is
+// added once Steam lists the stream as connected (SyncConnectedGuests).
 void RemotePlayInviteHandler::OnRemotePlayStart(RemoteClientStartStreamSession_t* cb)
 {
-    clientvt::Log("[rp] stream start: session=%u steam=%llu guest=%u group=%u game=%llu rpt=%d video=%d input=%d"
-                  " | liveGroup=%u state=%d invited=%zu\n",
+    // (The struct's fields after m_GameID have moved in current Steam, so its
+    // flags aren't logged.)
+    clientvt::Log("[rp] stream start: session=%u steam=%llu guest=%u group=%u game=%llu | liveGroup=%u state=%d invited=%zu\n",
                   cb->m_unStreamingSessionID, (unsigned long long)cb->m_player.m_playerID.ConvertToUint64(),
                   cb->m_player.m_unGuestID, cb->m_player.m_unOverlayPIDGroupID,
-                  (unsigned long long)cb->m_GameID.ToUint64(), (int)cb->m_bRemotePlayTogether,
-                  (int)cb->m_bEnableVideoStreaming, (int)cb->m_bEnableInputStreaming,
-                  m_groupID, (int)m_groupState, m_invited.size());
+                  (unsigned long long)cb->m_GameID.ToUint64(), m_groupID, (int)m_groupState, m_invited.size());
 
     // Our own stream isn't a guest.
     if (cb->m_player.m_playerID.GetAccountID() != 0 &&
@@ -766,34 +784,165 @@ void RemotePlayInviteHandler::OnRemotePlayStart(RemoteClientStartStreamSession_t
         return;
     }
 
-    // Creating a guest link reserves a slot, and Steam reports that slot as a
-    // stream starting before anyone has joined. The slot carries the link's
-    // placeholder SteamID (account 0, but universe/type set). A real Steam Link
-    // guest without an account reports SteamID 0, and a guest with an account
-    // reports their own SteamID, so only the placeholder is skipped.
-    if (cb->m_player.m_playerID.GetAccountID() == 0 && cb->m_player.m_playerID.ConvertToUint64() != 0)
+    // No SteamID at all: not a guest but the host streaming to a device of
+    // their own (the Steam Link app signed in to their account, which also
+    // opens Big Picture mode).
+    if (cb->m_player.m_playerID.ConvertToUint64() == 0)
+    {
+        clientvt::Log("[rp] stream %u is to the host's own device; not a guest\n", cb->m_unStreamingSessionID);
+        return;
+    }
+
+    m_sessionPlayers[cb->m_unStreamingSessionID] = cb->m_player;
+
+    // Without Steam's list of connected clients, fall back to taking a stream
+    // start as a join (wrong for guest links, whose stream starts when the link
+    // is made, so those are left out).
+    if (!GClientContext()->SteamRemotePlay())
+    {
+        if (cb->m_player.m_playerID.GetAccountID() != 0)
+        {
+            AddGuest(cb->m_player, cb->m_unStreamingSessionID);
+        }
+        return;
+    }
+    SyncConnectedGuests(true);
+}
+
+void RemotePlayInviteHandler::OnSessionConnected(SteamRemotePlaySessionConnected_t* cb)
+{
+    clientvt::Log("[rp] Remote Play client connected: session=%u\n", cb->m_unSessionID);
+    SyncConnectedGuests(true);
+}
+
+void RemotePlayInviteHandler::OnSessionDisconnected(SteamRemotePlaySessionDisconnected_t* cb)
+{
+    clientvt::Log("[rp] Remote Play client disconnected: session=%u\n", cb->m_unSessionID);
+    GuestLeft(cb->m_unSessionID, nullptr);
+}
+
+void RemotePlayInviteHandler::SyncConnectedGuests(bool now)
+{
+    const long long ms = (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now().time_since_epoch()).count();
+    if (!now && m_lastGuestSync && ms - m_lastGuestSync < 1000)
+    {
+        return;
+    }
+    m_lastGuestSync = ms;
+
+    // Steam turns whole-screen sharing off whenever its last guest leaves, even
+    // with invites or links still waiting, so it's turned back on for them.
+    CRemoteClientManagerByName* rcm = GClientContext()->RemoteClientManager();
+    if (m_enabledDesktopStreaming && !rcm->BStreamingDesktopToRemotePlayTogetherEnabled())
+    {
+        clientvt::Log("[rp] Steam turned whole-screen sharing off; turning it back on\n");
+        rcm->SetStreamingDesktopToRemotePlayTogetherEnabled(true);
+    }
+
+    ISteamRemotePlay001* rp = GClientContext()->SteamRemotePlay();
+    if (!rp)
     {
         return;
     }
 
-    uint64 key = GuestKey(cb->m_player);
+    std::set<uint32> connected;
+    const uint32 count = rp->GetSessionCount();
+    for (uint32 i = 0; i < count && i < 64; ++i)
+    {
+        const uint32 id = rp->GetSessionID((int)i);
+        if (id)
+        {
+            connected.insert(id);
+        }
+    }
+
+    // Newly connected: the stream of one of our invites.
+    const CSteamID me = GClientContext()->SteamUser()->GetSteamID();
+    for (std::set<uint32>::const_iterator it = connected.begin(); it != connected.end(); ++it)
+    {
+        const uint32 id = *it;
+        bool listed = false;
+        for (size_t i = 0; i < m_guests.size() && !listed; ++i)
+        {
+            if (m_guests[i].sessionID == id)
+            {
+                m_guests[i].missingChecks = 0;
+                listed = true;
+            }
+        }
+        if (listed)
+        {
+            continue;
+        }
+        const CSteamID who = rp->GetSessionSteamID(id);
+        if (who == me)
+        {
+            continue;       // the host's own device
+        }
+        std::map<uint32, RemotePlayPlayer_t>::const_iterator known = m_sessionPlayers.find(id);
+        if (known != m_sessionPlayers.end())
+        {
+            const RemotePlayPlayer_t player = known->second;
+            AddGuest(player, id);
+            continue;
+        }
+        // A friend whose stream Steam hasn't reported: known by SteamID.
+        for (size_t i = 0; who.GetAccountID() != 0 && i < m_invited.size(); ++i)
+        {
+            if (m_invited[i].m_playerID == who)
+            {
+                const RemotePlayPlayer_t player = m_invited[i];
+                AddGuest(player, id);
+                break;
+            }
+        }
+    }
+
+    // Gone without Steam saying so: not listed for 3 checks in a row.
+    for (size_t i = m_guests.size(); i > 0; --i)
+    {
+        ConnectedGuest& g = m_guests[i - 1];
+        if (!g.sessionID || g.sessionID == kFakeGuestSession || connected.count(g.sessionID))
+        {
+            continue;
+        }
+        if (++g.missingChecks >= 3)
+        {
+            const uint32 session = g.sessionID;
+            const RemotePlayPlayer_t player = g.player;
+            GuestLeft(session, &player);
+        }
+    }
+}
+
+// A guest connected. We have the RemotePlayPlayer_t of their stream (SteamID,
+// guest id, group id), so we can grant control immediately.
+void RemotePlayInviteHandler::AddGuest(const RemotePlayPlayer_t& player, uint32 sessionID)
+{
+    clientvt::Log("[rp] guest joined: session=%u steam=%llu guest=%u group=%u\n", sessionID,
+                  (unsigned long long)player.m_playerID.ConvertToUint64(), player.m_unGuestID,
+                  player.m_unOverlayPIDGroupID);
+    uint64 key = GuestKey(player);
 
     for (size_t i = 0; i < m_guests.size(); ++i)
     {
         if (m_guests[i].key == key)
         {
-            m_guests[i].player = cb->m_player;  // refresh with latest struct
-            m_guests[i].sessionID = cb->m_unStreamingSessionID;
+            m_guests[i].player = player;  // refresh with latest struct
+            m_guests[i].sessionID = sessionID;
+            m_guests[i].missingChecks = 0;
             ApplyGuest(m_guests[i]);
             return;
         }
     }
 
     ConnectedGuest g;
-    g.player = cb->m_player;
+    g.player = player;
     g.key = key;
-    g.steamID = cb->m_player.m_playerID.GetAccountID() != 0 ? cb->m_player.m_playerID.ConvertToUint64() : 0;
-    g.sessionID = cb->m_unStreamingSessionID;
+    g.steamID = player.m_playerID.GetAccountID() != 0 ? player.m_playerID.ConvertToUint64() : 0;
+    g.sessionID = sessionID;
+    g.missingChecks = 0;
     g.wantKbd = true;
     g.wantMouse = true;
     g.wantCtrl = true;              // default: give a new guest full control
@@ -823,9 +972,35 @@ void RemotePlayInviteHandler::OnRemotePlayStart(RemoteClientStartStreamSession_t
     {
         // Someone who joined through a guest link may not be a friend, so ask
         // Steam for their name for the control window.
-        GClientContext()->SteamFriends()->RequestUserInformation(cb->m_player.m_playerID, true);
+        GClientContext()->SteamFriends()->RequestUserInformation(player.m_playerID, true);
     }
     ApplyGuest(g);
+}
+
+void RemotePlayInviteHandler::GuestLeft(uint32 sessionID, const RemotePlayPlayer_t* player)
+{
+    const uint64 key = player ? GuestKey(*player) : 0;
+    for (size_t i = 0; i < m_guests.size(); ++i)
+    {
+        const ConnectedGuest& g = m_guests[i];
+        if (g.sessionID == kFakeGuestSession || !((sessionID && g.sessionID == sessionID) || (key && g.key == key)))
+        {
+            continue;
+        }
+        clientvt::Log("[rp] guest left: session=%u steam=%llu guest=%u\n", g.sessionID,
+                      (unsigned long long)g.player.m_playerID.ConvertToUint64(), g.player.m_unGuestID);
+        m_guests.erase(m_guests.begin() + i);
+        ++m_rosterRevision;
+        if (!m_quiet)
+        {
+            PlayGuestSound(false);
+        }
+        break;
+    }
+    if (sessionID)
+    {
+        m_sessionPlayers.erase(sessionID);
+    }
 }
 
 void RemotePlayInviteHandler::OnRemotePlayInviteResult(RemotePlayInviteResult_t* inviteResultCb)
@@ -930,18 +1105,6 @@ void RemotePlayInviteHandler::OnRemotePlayStop(RemoteClientStopStreamSession_t* 
         return;
     }
 
-    uint64 stoppedKey = GuestKey(streamStopCb->m_player);
-    for (size_t i = 0; i < m_guests.size(); ++i)
-    {
-        if (m_guests[i].key == stoppedKey)
-        {
-            m_guests.erase(m_guests.begin() + i);
-            ++m_rosterRevision;
-            if (!m_quiet)
-            {
-                PlayGuestSound(false);
-            }
-            break;
-        }
-    }
+    // A guest left (or the stream of an invite nobody used ended).
+    GuestLeft(streamStopCb->m_unStreamingSessionID, &streamStopCb->m_player);
 }
