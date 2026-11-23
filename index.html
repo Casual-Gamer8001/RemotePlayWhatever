@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Remote Play Whatever – Remote Play Together for any game (works with current Steam)</title>
+<meta name="description" content="Download Remote Play Whatever for Windows, Steam Deck / Linux and macOS. Share any game with Steam Remote Play Together, even emulators, and invite anyone with a link. Works with the current Steam client.">
+<link rel="canonical" href="https://casual-gamer8001.github.io/RemotePlayWhatever/">
+<link rel="icon" type="image/png" href="icon.png">
+<meta name="theme-color" content="#101418">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Remote Play Whatever">
+<meta property="og:title" content="Remote Play Whatever – Remote Play Together for any game">
+<meta property="og:description" content="Share any game with Steam Remote Play Together, even emulators, and invite anyone with a link. Works with the current Steam client. Windows, Steam Deck / Linux and macOS.">
+<meta property="og:url" content="https://casual-gamer8001.github.io/RemotePlayWhatever/">
+<meta property="og:image" content="https://casual-gamer8001.github.io/RemotePlayWhatever/screenshot.png">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Remote Play Whatever",
+  "alternateName": "RemotePlayWhatever",
+  "description": "Starts Steam Remote Play Together for any game, including Steam games without Remote Play Together support and non-Steam games such as emulators. Works with the current Steam client.",
+  "applicationCategory": "GameApplication",
+  "operatingSystem": "Windows 10, Windows 11, Linux, SteamOS, macOS",
+  "url": "https://casual-gamer8001.github.io/RemotePlayWhatever/",
+  "downloadUrl": "https://github.com/Casual-Gamer8001/RemotePlayWhatever/releases/latest",
+  "image": "https://casual-gamer8001.github.io/RemotePlayWhatever/screenshot.png",
+  "license": "https://opensource.org/licenses/MIT",
+  "isAccessibleForFree": true,
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "codeRepository": "https://github.com/Casual-Gamer8001/RemotePlayWhatever"
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    { "@type": "Question", "name": "Is RemotePlayWhatever still working?",
+      "acceptedAnswer": { "@type": "Answer", "text": "The original RemotePlayWhatever (version 0.2.14) doesn't work with current Steam clients and hasn't been updated since April 2026. This maintained version includes the community fix and works with the current Steam client." } },
+    { "@type": "Question", "name": "Why did RemotePlayWhatever stop working?",
+      "acceptedAnswer": { "@type": "Answer", "text": "It uses Steam's internal functions, and Steam updates moved them. The original finds them by their position, so it calls the wrong ones and crashes or does nothing. This version finds them by name (the fix from pull request #289 by okabeeer), so most Steam updates don't break it." } },
+    { "@type": "Question", "name": "Do my friends need to own the game?",
+      "acceptedAnswer": { "@type": "Answer", "text": "No. With Remote Play Together only the host needs the game. Steam friends join from Steam, and anyone with a guest link joins with the free Steam Link app, even without a Steam account." } },
+    { "@type": "Question", "name": "Does it work on the Steam Deck?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Yes, use the Linux AppImage in Desktop Mode and start your game from Steam in Desktop Mode too." } },
+    { "@type": "Question", "name": "Windows says the publisher is unknown. Is it safe?",
+      "acceptedAnswer": { "@type": "Answer", "text": "The app isn't code-signed, so Windows SmartScreen warns about it: click More info, then Run anyway. It's open source under the MIT License, and every download is built by GitHub Actions from the public source code." } }
+  ]
+}
+</script>
+<style>
+  :root {
+    --bg: #101418; --panel: #182029; --panel2: #1f2a36; --text: #e8eef4; --muted: #9fb0c0;
+    --accent: #4cc2ff; --accent-text: #06263a; --border: #2a3846; --warn-bg: #2b2414; --warn-border: #6b5520;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f5f7fa; --panel: #ffffff; --panel2: #eef2f6; --text: #14202b; --muted: #556677;
+      --accent: #0a74c2; --accent-text: #ffffff; --border: #d5dde6; --warn-bg: #fff7e0; --warn-border: #e5c76b;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.55 "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif; }
+  a { color: var(--accent); }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 0 20px; }
+  header { padding: 28px 0 8px; display: flex; align-items: center; gap: 14px; }
+  header img { width: 48px; height: 48px; border-radius: 10px; }
+  header .name { font-weight: 600; font-size: 18px; }
+  header nav { margin-left: auto; display: flex; gap: 18px; font-size: 15px; }
+  header nav a { color: var(--muted); text-decoration: none; }
+  header nav a:hover { color: var(--text); }
+  .hero { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 36px; align-items: center; padding: 28px 0 12px; }
+  h1 { font-size: 44px; line-height: 1.1; margin: 0 0 8px; letter-spacing: -0.5px; }
+  .tagline { font-size: 24px; font-weight: 600; margin: 0 0 14px; }
+  .lead { font-size: 19px; color: var(--muted); margin: 0 0 22px; }
+  .status { background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: 10px; padding: 12px 14px; font-size: 15px; margin: 0 0 22px; }
+  .shot { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 10px 40px rgba(0,0,0,.35); }
+  .btn { display: inline-block; background: var(--accent); color: var(--accent-text); font-weight: 600; text-decoration: none; padding: 12px 20px; border-radius: 8px; }
+  .btn:hover { filter: brightness(1.08); }
+  .small { font-size: 14px; color: var(--muted); }
+  section { padding: 30px 0; }
+  h2 { font-size: 28px; margin: 0 0 16px; }
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 8px; }
+  .card h3 { margin: 0; font-size: 19px; }
+  .card .btn { text-align: center; margin-top: auto; }
+  .tag { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: var(--panel2); color: var(--muted); vertical-align: middle; margin-left: 6px; }
+  ol.steps { padding-left: 22px; margin: 0; }
+  ol.steps li { margin: 0 0 10px; }
+  .features { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px 28px; padding: 0; margin: 0; list-style: none; }
+  .features li { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .features b { display: block; margin-bottom: 4px; }
+  details { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; margin: 0 0 10px; }
+  summary { cursor: pointer; font-weight: 600; }
+  details p { margin: 10px 0 2px; color: var(--muted); }
+  footer { border-top: 1px solid var(--border); margin-top: 20px; padding: 22px 0 40px; font-size: 14px; color: var(--muted); }
+  code { background: var(--panel2); padding: 1px 6px; border-radius: 5px; font-size: 14px; }
+  @media (max-width: 820px) {
+    .hero { grid-template-columns: 1fr; }
+    .cards, .features { grid-template-columns: 1fr; }
+    h1 { font-size: 34px; }
+    .tagline { font-size: 20px; }
+    header nav { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <img src="icon.png" alt="" width="48" height="48">
+    <span class="name">Remote Play Whatever</span>
+    <nav>
+      <a href="#download">Download</a>
+      <a href="#how">How to use</a>
+      <a href="#faq">FAQ</a>
+      <a href="https://github.com/Casual-Gamer8001/RemotePlayWhatever">GitHub</a>
+    </nav>
+  </header>
+
+  <div class="hero">
+    <div>
+      <h1>Remote Play Whatever</h1>
+      <p class="tagline">Steam Remote Play Together for any game</p>
+      <p class="lead">It starts Remote Play Together for games that don't support it, and for non-Steam games such as emulators. Invite Steam friends, or send a link that anyone can join, even without a Steam account.</p>
+      <p class="status"><b>Works with the current Steam client.</b> The original RemotePlayWhatever (version 0.2.14) is broken with current Steam and hasn't been updated since April 2026. This maintained version includes the community fix and keeps getting updates.</p>
+      <a class="btn" href="#download">Download RemotePlayWhatever</a>
+      <p class="small" id="latest">Free and open source (MIT License) · Windows, Steam Deck / Linux and macOS</p>
+    </div>
+    <img class="shot" src="screenshot.png" width="510" height="432" alt="Remote Play Whatever ready to share RetroArch, with a Create guest link button">
+  </div>
+
+  <section id="download">
+    <h2>Download</h2>
+    <div class="cards">
+      <div class="card">
+        <h3>Windows</h3>
+        <div class="small" data-size-for="RemotePlayWhatever-win64.zip">Windows 10 or 11, 64-bit</div>
+        <div>Unzip it into a folder you'll keep and run <code>RemotePlayWhatever.exe</code>. No installer, no admin rights. It keeps itself up to date.</div>
+        <a class="btn" href="https://github.com/Casual-Gamer8001/RemotePlayWhatever/releases/latest/download/RemotePlayWhatever-win64.zip">Download for Windows</a>
+      </div>
+      <div class="card">
+        <h3>Steam Deck and Linux <span class="tag">New</span></h3>
+        <div class="small" data-size-for="RemotePlayWhatever-linux-x86_64.AppImage">64-bit, glibc 2.35 or newer</div>
+        <div>One AppImage file. Mark it executable and run it while Steam is running. On the Steam Deck, use it in Desktop Mode.</div>
+        <a class="btn" href="https://github.com/Casual-Gamer8001/RemotePlayWhatever/releases/latest/download/RemotePlayWhatever-linux-x86_64.AppImage">Download for Linux</a>
+      </div>
+      <div class="card">
+        <h3>macOS <span class="tag">Experimental</span></h3>
+        <div class="small" data-size-for="RemotePlayWhatever-macos.zip">macOS 11 or later, Intel or Apple Silicon</div>
+        <div>Move the app to Applications. It isn't signed by Apple, so allow it once under Privacy &amp; Security. Not yet tested on a real Mac.</div>
+        <a class="btn" href="https://github.com/Casual-Gamer8001/RemotePlayWhatever/releases/latest/download/RemotePlayWhatever-macos.zip">Download for macOS</a>
+      </div>
+    </div>
+    <p class="small">Older builds and release notes are on the <a href="https://github.com/Casual-Gamer8001/RemotePlayWhatever/releases">releases page</a>. Step-by-step install notes for each system are in the <a href="https://github.com/Casual-Gamer8001/RemotePlayWhatever#download">README</a>.</p>
+  </section>
+
+  <section id="how">
+    <h2>How to use</h2>
+    <ol class="steps">
+      <li>Start Steam and sign in, then open Remote Play Whatever.</li>
+      <li>Start your game <b>through Steam</b>: from your library, or with <b>Play</b> next to it under <i>Recent games</i>. Add a non-Steam game, such as an emulator, to Steam first (<b>Games &gt; Add a Non-Steam Game to My Library</b>).</li>
+      <li>Click <b>Invite</b> next to a friend, or <b>Create guest link</b> and send the link to anyone. They join with Steam, or with the free Steam Link app on a phone, tablet, computer or TV. A <b>QR code</b> is there for someone in the room.</li>
+      <li>Choose who can use the keyboard, mouse or a controller in the guest controls window, and click <b>End session</b> when you're done.</li>
+    </ol>
+  </section>
+
+  <section id="features">
+    <h2>What it does</h2>
+    <ul class="features">
+      <li><b>Any game</b>Steam games without Remote Play Together, and non-Steam games you've added to Steam. Only the host needs the game.</li>
+      <li><b>Guest links for anyone</b>A link (or QR code) that someone without a Steam account can join with the free Steam Link app. One person per link.</li>
+      <li><b>Guest controls</b>Keyboard, mouse and controller switches for every guest, a Remove button, and in-game shortcuts on Windows.</li>
+      <li><b>Survives Steam updates</b>Steam's internal functions are found by name, so most Steam updates don't break it. If one ever does, the app says so, and on Windows it offers the fix.</li>
+      <li><b>Updates itself on Windows</b>Updates are checked before they're installed, and a version that doesn't start properly is rolled back.</li>
+      <li><b>Easy to use</b>Your recent games with a Play button, pinned friends, what friends are playing, and light or dark mode.</li>
+    </ul>
+  </section>
+
+  <section id="faq">
+    <h2>Questions</h2>
+    <details open>
+      <summary>Is RemotePlayWhatever still working?</summary>
+      <p>The original RemotePlayWhatever (version 0.2.14) doesn't work with current Steam clients and hasn't been updated since April 2026. This maintained version includes the community fix and works with the current Steam client.</p>
+    </details>
+    <details>
+      <summary>Why did RemotePlayWhatever stop working?</summary>
+      <p>It uses Steam's internal functions, and Steam updates moved them. The original finds them by their position, so it calls the wrong ones and crashes or does nothing. This version finds them by name (the fix from <a href="https://github.com/m4dEngi/RemotePlayWhatever/pull/289">pull request #289</a> by okabeeer), so most Steam updates don't break it.</p>
+    </details>
+    <details>
+      <summary>Do my friends need to own the game?</summary>
+      <p>No. With Remote Play Together only the host needs the game. Steam friends join from Steam, and anyone with a guest link joins with the free Steam Link app, even without a Steam account.</p>
+    </details>
+    <details>
+      <summary>Does it work on the Steam Deck?</summary>
+      <p>Yes, use the Linux AppImage in Desktop Mode and start your game from Steam in Desktop Mode too.</p>
+    </details>
+    <details>
+      <summary>Windows says the publisher is unknown. Is it safe?</summary>
+      <p>The app isn't code-signed, so Windows SmartScreen warns about it: click <b>More info</b>, then <b>Run anyway</b>. It's open source under the MIT License, and every download is built by GitHub Actions from the <a href="https://github.com/Casual-Gamer8001/RemotePlayWhatever">public source code</a>.</p>
+    </details>
+  </section>
+
+  <footer>
+    <p>Remote Play Whatever was created by <a href="https://github.com/m4dEngi/RemotePlayWhatever">m4dEngi</a>. This maintained version is by <a href="https://github.com/Casual-Gamer8001">Casual-Gamer8001</a>, with the Steam-update fix by <a href="https://github.com/okabeeer">okabeeer</a>. Found a problem? <a href="https://github.com/Casual-Gamer8001/RemotePlayWhatever/issues">Open an issue</a>.</p>
+    <p>Released under the MIT License. Not made by or affiliated with Valve; Steam and Remote Play Together are trademarks of Valve Corporation.</p>
+  </footer>
+</div>
+<script>
+(function () {
+  fetch('https://api.github.com/repos/Casual-Gamer8001/RemotePlayWhatever/releases/latest')
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (rel) {
+      if (!rel || !rel.tag_name) return;
+      var date = rel.published_at ? new Date(rel.published_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) : '';
+      var el = document.getElementById('latest');
+      el.textContent = 'Latest: ' + rel.tag_name.replace('build-', 'build ') + (date ? ', ' + date : '') + ' · Free and open source (MIT License)';
+      (rel.assets || []).forEach(function (a) {
+        var line = document.querySelector('[data-size-for="' + a.name + '"]');
+        if (line) line.textContent += ' · ' + (a.size / 1048576).toFixed(1) + ' MB';
+      });
+    })
+    .catch(function () {});
+})();
+</script>
+</body>
+</html>
