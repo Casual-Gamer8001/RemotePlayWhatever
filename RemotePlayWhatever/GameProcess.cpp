@@ -194,7 +194,7 @@ static BOOL CALLBACK FindGameWindow(HWND w, LPARAM param)
 }
 #endif
 
-bool GameWindowInFront()
+FrontWindow WindowInFront()
 {
 #ifdef __WXMSW__
     const HWND front = ::GetForegroundWindow();
@@ -202,7 +202,7 @@ bool GameWindowInFront()
     if (!front || !::GetWindowThreadProcessId(front, &pid))
     {
         clientvt::Log("[rp] window in front: none\n");
-        return false;
+        return FrontNone;
     }
     const std::map<DWORD, std::wstring> names = ProcessNames();
     std::map<DWORD, bool> known;
@@ -210,9 +210,9 @@ bool GameWindowInFront()
     std::map<DWORD, std::wstring>::const_iterator name = names.find(pid);
     clientvt::Log("[rp] window in front: pid %lu (%ls), the game's: %d\n", (unsigned long)pid,
                   name != names.end() ? name->second.c_str() : L"?", (int)game);
-    return game;
+    return game ? FrontGame : FrontOther;
 #else
-    return false;
+    return FrontNone;
 #endif
 }
 
@@ -233,7 +233,8 @@ bool BringGameWindowToFront()
     {
         ::ShowWindow(search.found, SW_RESTORE);
     }
-    const bool done = ::SetForegroundWindow(search.found) != FALSE && ::GetForegroundWindow() == search.found;
+    // (Windows finishes the switch once the game answers, so it isn't checked here.)
+    const bool done = ::SetForegroundWindow(search.found) != FALSE;
     std::map<DWORD, std::wstring>::const_iterator name = search.names.find(search.pid);
     clientvt::Log("[rp] game window of pid %lu (%ls) brought to the front: %d\n", (unsigned long)search.pid,
                   name != search.names.end() ? name->second.c_str() : L"?", (int)done);

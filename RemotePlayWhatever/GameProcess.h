@@ -19,14 +19,17 @@ bool ProcessStillRunning(uint32_t pid);
 
 // Steam shows Remote Play Together guests only a Steam game's own window, and
 // only while it's in front; with any other window in front they see "Host is
-// busy". These are for that (Windows only; elsewhere they return false).
+// busy". These are for that (Windows only; elsewhere: FrontNone and false).
 //
-// Whether the window in front belongs to the game: a process with Steam's
-// overlay that isn't this app or one of Steam's own programs.
-bool GameWindowInFront();
+// Whose window is in front: the game's (a process with Steam's overlay that
+// isn't this app or one of Steam's own programs), another program's (this app
+// included), or nobody's (for a moment while Windows switches windows).
+enum FrontWindow { FrontNone, FrontGame, FrontOther };
+FrontWindow WindowInFront();
 // Brings the game's frontmost window to the front, restoring it if it's
 // minimized. Windows only lets the program in front do that. False if there's
-// no game window or Windows refused.
+// no game window or Windows refused. (Windows takes a moment to finish: the
+// game has to answer first, and meanwhile no window is in front.)
 bool BringGameWindowToFront();
 
 #endif // GAMEPROCESS_H

@@ -141,6 +141,7 @@ FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
     m_guestLinkHotKey(false),
     m_guestLinkKeyRetryAt(0),
     m_hotKeyLinkSince(0),
+    m_gameShownAt(0),
     m_remoteInviteResultCb(this, &FriendsListFrame::OnRemotePlayInviteResult),
     m_personaStateCb(this, &FriendsListFrame::OnPersonaStateChange)
 {
@@ -804,9 +805,9 @@ void FriendsListFrame::ShowGameToGuests()
         ControlFrame* controls = dynamic_cast<ControlFrame*>(node->GetData());
         ours = controls && front == controls->GetHWND();
     }
-    if (ours && ::IsWindowEnabled(front))
+    if (ours && ::IsWindowEnabled(front) && BringGameWindowToFront())
     {
-        BringGameWindowToFront();
+        m_gameShownAt = wxGetLocalTimeMillis();
     }
 #endif
 }
@@ -822,8 +823,11 @@ void FriendsListFrame::AnnounceGuests(const wxArrayString& joined, const wxArray
     {
         text = ListNames(joined) + " joined.";
 #ifdef __WXMSW__
-        // (See ShowGameToGuests.) Until the game is in front, they see "Host is busy".
-        if (GameOnlySession() && !GameWindowInFront())
+        // (See ShowGameToGuests.) Until the game is in front, they see "Host
+        // is busy". Not just after it was brought forward: until the game has
+        // answered, Windows says no window is in front, and that's unknown too.
+        const bool justShown = m_gameShownAt != 0 && wxGetLocalTimeMillis() - m_gameShownAt < 3000;
+        if (GameOnlySession() && !justShown && WindowInFront() == FrontOther)
         {
             text += " Click your game so they can see it.";
         }

@@ -238,6 +238,7 @@ private:
     bool m_guestLinkHotKey;         // ...and is registered right now
     wxLongLong m_guestLinkKeyRetryAt;
     wxLongLong m_hotKeyLinkSince;   // when Ctrl+Alt+L asked Steam for a link (0 = not waiting)
+    wxLongLong m_gameShownAt;       // when ShowGameToGuests last brought the game forward (0 = never)
 
     STEAM_CALLBACK(FriendsListFrame, OnRemotePlayInviteResult, RemotePlayInviteResult_t, m_remoteInviteResultCb);
     STEAM_CALLBACK(FriendsListFrame, OnPersonaStateChange, PersonaStateChange_t, m_personaStateCb);
