@@ -307,6 +307,22 @@ void RemotePlayInviteHandler::GroupTick()
                           (unsigned)m_pending[i].appID);
             if (sent)
             {
+                // Steam hands a guest slot out again once the guest who came in
+                // with its link has left, so a new link can get an old, used
+                // link's slot. That old link is over; forget it, or the new one
+                // would count as used too and never be shown.
+                for (size_t j = m_invited.size(); guest && j > 0; --j)
+                {
+                    if (m_invited[j - 1].m_playerID.GetAccountID() == 0 && m_invited[j - 1].m_unGuestID == guest)
+                    {
+                        m_invited.erase(m_invited.begin() + (j - 1));
+                    }
+                }
+                if (guest)
+                {
+                    m_takenLinks.erase(guest);
+                    m_linkURLs.erase(guest);
+                }
                 m_invited.push_back(rppInvitee);
                 ++m_rosterRevision;
             }
