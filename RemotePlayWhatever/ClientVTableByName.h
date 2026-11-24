@@ -17,7 +17,9 @@
 //  scopes). We disassemble just far enough to read the `lea reg, [rip+disp32]`
 //  that loads that string, and build a name -> vtable-index map at runtime.
 //  Calls then go through the resolved index, so they self-adapt to whatever
-//  build is installed.
+//  build is installed. Some builds (the Steam Runtime "steamrt64" build of the
+//  Linux client) load the interface's own name before each method's name, so a
+//  name most of an interface's stubs load is skipped (ScanVTableNames).
 //
 //  Cross-platform: the scan is pure x86-64 machine-code pattern matching and
 //  the string is present in steamclient64.dll (Windows / PE), steamclient.so
@@ -307,24 +309,29 @@ namespace clientvt
     }
 #endif
 
-    // --- read the bare method name a stub references via `lea reg,[rip+d32]` --
-    inline std::string NameOf(uintptr_t fn, const std::vector<Segment>& segs)
+    // --- the bare names a stub loads via `lea reg,[rip+d32]`, in order ---------
+    // Its own name, often more than once, and in some builds its interface's
+    // name too (see ScanVTableNames). At most 8, each with how far into the
+    // stub it's loaded.
+    struct LoadedName { std::string name; int at; };
+    inline std::vector<LoadedName> NamesIn(uintptr_t fn, const std::vector<Segment>& segs)
     {
+        std::vector<LoadedName> names;
         const uint8_t* p = reinterpret_cast<const uint8_t*>(fn);
 
         // Confine the instruction scan to the code segment that owns `fn`, so we
         // can't walk off the end of .text into an unmapped gap.
         uintptr_t codeHi = SegmentEndOf(segs, fn);
         if (!codeHi)
-            return std::string();
+            return names;
 
         // Scan window (bytes into the stub). The name-loading `lea` sits near the
-        // top of the function, but on Linux (steamclient.so) the telemetry-scope
-        // string is emitted deeper in the prologue than on Windows, so a tight cap
-        // misses it for some methods and they resolve to -1. 300 covers both; the
-        // window is only an upper bound — the per-segment guard below stops the
-        // scan at the real end of .text, so a larger cap is free and safe.
-        for (int k = 0; k < 300; ++k)
+        // top of the function, but deeper in the prologue on Linux than on
+        // Windows: the steamrt64 build loads BCreateRemotePlayInviteAndSession's
+        // name 288 bytes in, so 300 left little room. A short stub can let the
+        // scan run on into the next function, but its own name comes first. The
+        // per-segment guard below stops the scan at the real end of .text.
+        for (int k = 0; k < 400 && names.size() < 8; ++k)
         {
             if (fn + k + 7 > codeHi) // instruction bytes must stay in this segment
                 break;
@@ -380,33 +387,29 @@ namespace clientvt
                         ++letters;
                 }
                 if (ok && letters >= 4)
-                    return out;
+                {
+                    LoadedName loaded;
+                    loaded.name = out;
+                    loaded.at = k;
+                    names.push_back(loaded);
+                }
             }
         }
-        return std::string();
+        return names;
     }
 
-    // --- build name -> vtable index for a COM-like interface pointer ----------
-    inline std::unordered_map<std::string, int> ScanVTableNames(void* iface)
+    // --- build name -> vtable index for a vtable in a module's segments -------
+    inline std::unordered_map<std::string, int> ScanVTableNamesIn(void** vt, const std::vector<Segment>& segs)
     {
         std::unordered_map<std::string, int> map;
-        if (!iface)
-            return map;
-
-        void** vt = *reinterpret_cast<void***>(iface);
-
-        std::vector<Segment> segs;
-        if (!ModuleSegments(reinterpret_cast<void*>(vt[0]), segs))
-        {
-            Log("[vt] ModuleSegments failed for vt[0]=%p\n",
-                reinterpret_cast<void*>(vt[0]));
-            return map;
-        }
 
         // The vtable array itself lives in a segment; don't read entries past
         // the end of that segment (another potential cross-gap read on Linux).
         uintptr_t vtHi = SegmentEndOf(segs, reinterpret_cast<uintptr_t>(vt));
 
+        // The names each slot's stub loads, and how many slots load each name.
+        std::vector<std::vector<LoadedName> > names;
+        std::unordered_map<std::string, int> slotsLoading;
         for (int i = 0; i < 400; ++i)
         {
             uintptr_t slot = reinterpret_cast<uintptr_t>(&vt[i]);
@@ -417,12 +420,72 @@ namespace clientvt
             if (!SegmentEndOf(segs, fn)) // slot doesn't point into the module -> end of vtable
                 break;
 
-            std::string name = NameOf(fn, segs);
-            if (!name.empty() && map.find(name) == map.end())
-                map[name] = i;
+            names.push_back(NamesIn(fn, segs));
+            const std::vector<LoadedName>& loaded = names.back();
+            for (size_t j = 0; j < loaded.size(); ++j)
+            {
+                bool again = false;
+                for (size_t m = 0; m < j && !again; ++m)
+                    again = loaded[m].name == loaded[j].name;
+                if (!again)
+                    ++slotsLoading[loaded[j].name];
+            }
+        }
+
+        // A name most of the stubs load is no single method's but the
+        // interface's own (the steamrt64 build of the Linux client loads
+        // "IClientRemoteClientManager" before each method's name). Each slot
+        // gets the first name few stubs load: its own. Should two slots get the
+        // same name, the stub that loads it soonest keeps it: a short stub's
+        // scan can run on into the next function and find that one's name, but
+        // further in than the next function itself loads it.
+        int common = static_cast<int>(names.size() / 4);
+        if (common < 2)
+            common = 2;
+        for (std::unordered_map<std::string, int>::const_iterator it = slotsLoading.begin();
+             it != slotsLoading.end(); ++it)
+        {
+            if (it->second > common)
+                Log("[vt] skipped \"%s\": loaded by %d of %zu methods\n", it->first.c_str(), it->second,
+                    names.size());
+        }
+        std::unordered_map<std::string, int> loadedAt;
+        for (size_t i = 0; i < names.size(); ++i)
+        {
+            for (size_t j = 0; j < names[i].size(); ++j)
+            {
+                const LoadedName& loaded = names[i][j];
+                if (slotsLoading[loaded.name] > common)
+                    continue;
+                std::unordered_map<std::string, int>::const_iterator had = loadedAt.find(loaded.name);
+                if (had == loadedAt.end() || loaded.at < had->second)
+                {
+                    map[loaded.name] = static_cast<int>(i);
+                    loadedAt[loaded.name] = loaded.at;
+                }
+                break;
+            }
         }
         Log("[vt] resolved %zu named method(s)\n", map.size());
         return map;
+    }
+
+    // --- build name -> vtable index for a COM-like interface pointer ----------
+    inline std::unordered_map<std::string, int> ScanVTableNames(void* iface)
+    {
+        if (!iface)
+            return std::unordered_map<std::string, int>();
+
+        void** vt = *reinterpret_cast<void***>(iface);
+
+        std::vector<Segment> segs;
+        if (!ModuleSegments(reinterpret_cast<void*>(vt[0]), segs))
+        {
+            Log("[vt] ModuleSegments failed for vt[0]=%p\n",
+                reinterpret_cast<void*>(vt[0]));
+            return std::unordered_map<std::string, int>();
+        }
+        return ScanVTableNamesIn(vt, segs);
     }
 
     // --- call a method by fixed vtable slot, defensively --------------------
