@@ -11,6 +11,21 @@
 // Steam never uses.
 static const uint32 kFakeGuestSession = 0xFFFFFFFF;
 
+// Steam's own Remote Play Together panel in the game's overlay. The app used
+// to open it with every new group and link, but while it's open Steam pauses
+// the guests' input ("Input is temporarily disabled while the host is busy"),
+// and the guest controls window does its job. RPW_SHOW_STEAM_PANEL=1 opens it
+// again, to compare if Steam ever turns out to need it.
+static void ShowSteamPanel(CRemoteClientManagerByName* rcm, AppId_t appID)
+{
+    static const bool wanted = std::getenv("RPW_SHOW_STEAM_PANEL") != NULL;
+    if (wanted)
+    {
+        clientvt::Log("[rp] opening Steam's Remote Play Together panel (app %u)\n", (unsigned)appID);
+        rcm->ShowRemotePlayTogetherUI(appID);
+    }
+}
+
 RemotePlayInviteHandler::RemotePlayInviteHandler() :
     m_enabledDesktopStreaming(false),
     m_remoteGuestID(1),
@@ -196,7 +211,7 @@ void RemotePlayInviteHandler::SendInvite(CSteamID invitee)
             }
             if (appID)
             {
-                rcm->ShowRemotePlayTogetherUI(appID);
+                ShowSteamPanel(rcm, appID);
             }
             bool created = rcm->BCreateRemotePlayGroup(appID);
             clientvt::Log("[rp] BCreateRemotePlayGroup(app %u) -> %d\n", (unsigned)appID, (int)created);
@@ -1074,7 +1089,7 @@ void RemotePlayInviteHandler::OnRemotePlayInviteResult(RemotePlayInviteResult_t*
                 ++m_rosterRevision;
             }
         }
-        GClientContext()->RemoteClientManager()->ShowRemotePlayTogetherUI(GetRunningGameID().AppID());
+        ShowSteamPanel(GClientContext()->RemoteClientManager(), GetRunningGameID().AppID());
     }
     else
     {

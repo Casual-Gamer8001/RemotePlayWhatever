@@ -151,8 +151,7 @@ bool ClientContext::Init()
                   (int)m_remoteManager.Has("BCreateRemotePlayGroup"),
                   (int)m_remoteManager.Has("GetAvailableRemotePlayTogetherGuestID"));
     if (!m_remoteManager.Ok()
-        || !m_remoteManager.Has("BCreateRemotePlayInviteAndSession")
-        || !m_remoteManager.Has("ShowRemotePlayTogetherUI"))
+        || !m_remoteManager.Has("BCreateRemotePlayInviteAndSession"))
     {
         clientvt::Log("[vt] Init: RCM method resolution FAILED "
                       "(ok=%d count=%zu) — refusing to call into wrong slots\n",
