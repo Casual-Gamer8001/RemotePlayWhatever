@@ -94,6 +94,11 @@ private:
     // when this window isn't in front (Options > Notifications...).
     void UpdateGuestNotices();
     void AnnounceGuests(const wxArrayString& joined, const wxArrayString& left);
+    // A session sharing only the game's window (a Steam game), not the screen.
+    bool GameOnlySession() const;
+    // Someone joined: if this app is in front, the game comes back to the
+    // front, as Steam only shows guests the game while it's in front.
+    void ShowGameToGuests();
 
     void BuildUpdateBar(wxSizer* sizer);
     void BuildSessionCard(wxSizer* sizer);

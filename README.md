@@ -79,6 +79,7 @@ Only the game's window is shared for a Steam game. For a **non-Steam game**, Ste
 - On Windows, a game Steam started but doesn't show as the one you're playing (for example one added to Steam with another tool) is found too, from Steam's own record of the game it started.
 - **Share my screen** for games Steam can't start, such as Xbox app and Game Pass games or games from other launchers: Steam runs a small stand-in (a temporary non-Steam game that Steam forgets when it restarts) while you play, so Remote Play Together can share your whole screen. Guests don't hear it, because Steam only sends the sound of a game it started.
 - Guest links are clickable, can be shown as a QR code, and invites nobody has used yet are listed with a **Cancel** button each. **End session** disconnects everyone and cancels every unused invite and link.
+- On Windows, when someone joins while this window is in front (after you showed them a QR code, say), the app switches back to your Steam game, because Steam only shows guests the game while it's in front. With another program in front, the message that they joined says to click your game.
 - While you're sharing, the window says for how long (for example "Sharing · 2 guests connected · 25 min") and shows "*name* joined." or "*name* left." when guests come and go.
 - Short messages in the window (invite sent, link copied, why a session ended) instead of pop-ups.
 
@@ -153,6 +154,7 @@ A shortcut is left out if your keyboard layout uses that key combination to type
 - **"Steam doesn't send Remote Play Together invites while you're Invisible"**: set your Steam status to Online, or send a guest link instead.
 - **Your friend didn't get the invite**: use **Copy link** next to "Waiting for *name*" and send them the link another way.
 - **Your guest sees your whole screen**: that's how Steam shares a non-Steam game. Steam games share only their own window.
+- **Your guest sees "Host is busy"**: with a Steam game, Steam shows your guests only the game, and only while it's in front on your PC. Click the game. (Ctrl+Alt+L copies a guest link without leaving it.)
 - **Your guests hear no sound**:
     - Steam sends your guests the sound of the game it's sharing, recorded inside the game. With a non-Steam game, that's only while its window is in front: when you click another window, guests see your whole screen with no sound until you go back to the game.
     - With **Share my screen**, guests hear nothing: Steam only sends the sound of a game it started, and here that's the stand-in, not your game. If you can add the game to Steam (**Games > Add a Non-Steam Game to My Library**) and start it with **Play**, Steam sends its sound.

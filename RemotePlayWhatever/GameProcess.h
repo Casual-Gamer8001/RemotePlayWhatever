@@ -17,4 +17,16 @@ uint32_t FindGameOverlayPID();
 // Whether this process is still running (false where that can't be told).
 bool ProcessStillRunning(uint32_t pid);
 
+// Steam shows Remote Play Together guests only a Steam game's own window, and
+// only while it's in front; with any other window in front they see "Host is
+// busy". These are for that (Windows only; elsewhere they return false).
+//
+// Whether the window in front belongs to the game: a process with Steam's
+// overlay that isn't this app or one of Steam's own programs.
+bool GameWindowInFront();
+// Brings the game's frontmost window to the front, restoring it if it's
+// minimized. Windows only lets the program in front do that. False if there's
+// no game window or Windows refused.
+bool BringGameWindowToFront();
+
 #endif // GAMEPROCESS_H

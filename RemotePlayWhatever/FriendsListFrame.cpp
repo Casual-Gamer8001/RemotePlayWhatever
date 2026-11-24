@@ -16,6 +16,7 @@
 #include "FriendPanel.h"
 #include "ControlFrame.h"
 #include "GameInfo.h"
+#include "GameProcess.h"
 #include "TrayIcon.h"
 #include "UiHelpers.h"
 #include "UiWidgets.h"
@@ -708,6 +709,7 @@ void FriendsListFrame::UpdateGuestNotices()
     m_guestsSeen = true;
     wxArrayString joined, left;
     std::set<uint64> here;
+    bool newcomer = false;
     for (size_t i = 0; i < guests.size(); ++i)
     {
         const uint64 key = guests[i].key;
@@ -730,6 +732,7 @@ void FriendsListFrame::UpdateGuestNotices()
             if (!m_pendingJoins.count(key))
             {
                 m_pendingJoins[key] = now;
+                newcomer = true;
             }
             if (placeholder && now - m_pendingJoins[key] < 5000)
             {
@@ -765,10 +768,47 @@ void FriendsListFrame::UpdateGuestNotices()
         }
         it = m_guestNames.erase(it);
     }
+    // Right away, not once their name is known.
+    if (newcomer)
+    {
+        ShowGameToGuests();
+    }
     if (!joined.empty() || !left.empty())
     {
         AnnounceGuests(joined, left);
     }
+}
+
+bool FriendsListFrame::GameOnlySession() const
+{
+    return m_pRemoteInvite->IsSessionActive() && !m_pRemoteInvite->IsSharingDesktop();
+}
+
+void FriendsListFrame::ShowGameToGuests()
+{
+#ifdef __WXMSW__
+    // Steam shows guests only a Steam game's window, and only while it's in
+    // front ("Host is busy" otherwise). Someone joining while this app is in
+    // front most likely came in with a link or QR code from it, so the game
+    // comes back to the front. Not over a question the app is asking, and not
+    // over other programs (AnnounceGuests asks to click the game then).
+    if (!GameOnlySession())
+    {
+        return;
+    }
+    const HWND front = ::GetForegroundWindow();
+    bool ours = front && (front == GetHWND() || (m_qrDialog && front == m_qrDialog->GetHWND()));
+    for (wxWindowList::compatibility_iterator node = wxTopLevelWindows.GetFirst(); node && !ours && front;
+         node = node->GetNext())
+    {
+        ControlFrame* controls = dynamic_cast<ControlFrame*>(node->GetData());
+        ours = controls && front == controls->GetHWND();
+    }
+    if (ours && ::IsWindowEnabled(front))
+    {
+        BringGameWindowToFront();
+    }
+#endif
 }
 
 void FriendsListFrame::AnnounceGuests(const wxArrayString& joined, const wxArrayString& left)
@@ -781,6 +821,13 @@ void FriendsListFrame::AnnounceGuests(const wxArrayString& joined, const wxArray
     if (!joined.empty())
     {
         text = ListNames(joined) + " joined.";
+#ifdef __WXMSW__
+        // (See ShowGameToGuests.) Until the game is in front, they see "Host is busy".
+        if (GameOnlySession() && !GameWindowInFront())
+        {
+            text += " Click your game so they can see it.";
+        }
+#endif
     }
     if (!left.empty())
     {
