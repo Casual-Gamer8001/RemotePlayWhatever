@@ -44,4 +44,10 @@ std::vector<RecentGame> GetRecentGames(uint32 accountID, size_t max);
 // or the grid artwork set for a non-Steam game. Empty if there's none.
 wxString GetGameThumbnailPath(CGameID game, uint32 accountID);
 
+// The Steam game Steam itself says it started (Windows: RunningAppID in
+// Steam's registry key), if it's an installed Steam game; 0 otherwise, and
+// always 0 on Linux and macOS. Finds games Steam doesn't show as the one
+// you're playing.
+AppId_t GetSteamRunningAppID();
+
 #endif // GAMEINFO_H

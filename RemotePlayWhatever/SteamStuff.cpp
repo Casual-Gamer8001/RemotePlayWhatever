@@ -1,6 +1,8 @@
+#include <cstdlib>
 #include <wx/clipbrd.h>
 #include <wx/filename.h>
 #include <wx/stdpaths.h>
+#include "GameInfo.h"
 #include "SteamStuff.h"
 
 // steam client context
@@ -267,10 +269,28 @@ ClientContext* GClientContext()
 
 CGameID GetRunningGameID()
 {
+    // For tests of the second way below: RPW_TEST_NO_PLAYED_GAME skips the first.
+    static const bool skipPlayed = std::getenv("RPW_TEST_NO_PLAYED_GAME") != NULL;
     FriendGameInfo_t gameInfo;
-    if(GClientContext()->SteamFriends()->GetFriendGamePlayed(GClientContext()->SteamUser()->GetSteamID(), &gameInfo))
+    if(!skipPlayed &&
+       GClientContext()->SteamFriends()->GetFriendGamePlayed(GClientContext()->SteamUser()->GetSteamID(), &gameInfo))
     {
         return gameInfo.m_gameID;
+    }
+
+    // Steam doesn't show every game it starts as the one you're playing (games
+    // added to Steam with other tools, for one), so ask which game it started.
+    const AppId_t app = GetSteamRunningAppID();
+    if (app)
+    {
+        static AppId_t logged = 0;
+        if (app != logged)
+        {
+            logged = app;
+            clientvt::Log("[rp] running game %u found through Steam's RunningAppID (not shown as played)\n",
+                          (unsigned)app);
+        }
+        return CGameID(app);
     }
 
     return CGameID();

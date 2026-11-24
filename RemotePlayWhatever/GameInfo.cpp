@@ -9,6 +9,7 @@
 #include <wx/ffile.h>
 #include <wx/filefn.h>
 #include <wx/filename.h>
+#include <wx/log.h>
 #include <wx/time.h>
 #include <wx/utils.h>
 #ifdef __WXMSW__
@@ -548,6 +549,62 @@ static bool IsSteamTool(AppId_t appID, const wxString& name)
            name.Contains("Redistributable") || name == "SteamVR";
 }
 
+// Whether a Steam game is installed (has an appmanifest in a library folder).
+static bool IsInstalledSteamApp(AppId_t appID, const std::vector<wxString>& folders)
+{
+    for (const wxString& folder : folders)
+    {
+        if (wxFileExists(wxString::Format("%s/steamapps/appmanifest_%u.acf", folder, (unsigned)appID)))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+AppId_t GetSteamRunningAppID()
+{
+#ifdef __WXMSW__
+    // Asked several times a second, so read at most every half second.
+    static wxLongLong lastRead = 0;
+    static AppId_t lastResult = 0;
+    // The last id read, and whether it's an installed game (not a tool).
+    static AppId_t checkedApp = 0;
+    static bool checkedIsGame = false;
+    const wxLongLong now = wxGetUTCTimeMillis();
+    if (lastRead != 0 && now >= lastRead && now - lastRead < 500)
+    {
+        return lastResult;
+    }
+    lastRead = now;
+
+    AppId_t app = 0;
+    {
+        wxLogNull noLog;
+        wxRegKey key(wxRegKey::HKCU, "Software\\Valve\\Steam");
+        long value = 0;
+        if (key.Exists() && key.HasValue("RunningAppID") && key.QueryValue("RunningAppID", &value))
+        {
+            app = (AppId_t)(unsigned long)value;
+        }
+    }
+
+    // Non-Steam games (ids with the top bit set) are left to what Steam shows
+    // as played. An id that isn't installed is a launcher's (EA's, say), not
+    // the game's.
+    if (app != checkedApp)
+    {
+        checkedApp = app;
+        checkedIsGame = app != 0 && (app & 0x80000000u) == 0 && IsInstalledSteamApp(app, LibraryFolders()) &&
+                        !IsSteamTool(app, GetSteamAppName(app));
+    }
+    lastResult = checkedIsGame ? app : 0;
+    return lastResult;
+#else
+    return 0;
+#endif
+}
+
 std::vector<RecentGame> GetRecentGames(uint32 accountID, size_t max)
 {
     static std::vector<RecentGame> cached;
@@ -596,15 +653,7 @@ std::vector<RecentGame> GetRecentGames(uint32 accountID, size_t max)
     for (size_t i = 0; i < byTime.size() && games.size() < max; ++i)
     {
         const AppId_t appID = byTime[i].second;
-        bool installed = false;
-        for (const wxString& folder : folders)
-        {
-            if (wxFileExists(wxString::Format("%s/steamapps/appmanifest_%u.acf", folder, (unsigned)appID)))
-            {
-                installed = true;
-                break;
-            }
-        }
+        const bool installed = IsInstalledSteamApp(appID, folders);
         const wxString name = installed ? GetSteamAppName(appID) : wxString();
         if (!installed || IsSteamTool(appID, name))
         {

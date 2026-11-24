@@ -76,6 +76,7 @@ Only the game's window is shared for a Steam game. For a **non-Steam game**, Ste
 - The game you're sharing is shown at the top of the window with its picture from your Steam library, what your guests will see, and the guest link and session buttons.
 - With no game running, the games you played lately (Steam games and non-Steam games) are listed with a **Play** button that starts them through Steam.
 - Non-Steam games are shown by name, and sharing stops by itself when the game closes, so guests don't keep seeing your screen.
+- On Windows, a game Steam started but doesn't show as the one you're playing (for example one added to Steam with another tool) is found too, from Steam's own record of the game it started.
 - **Share my screen** for games Steam can't start, such as Xbox app and Game Pass games or games from other launchers: Steam runs a small stand-in (a temporary non-Steam game that Steam forgets when it restarts) while you play, so Remote Play Together can share your whole screen. Guests don't hear it, because Steam only sends the sound of a game it started.
 - Guest links are clickable, can be shown as a QR code, and invites nobody has used yet are listed with a **Cancel** button each. **End session** disconnects everyone and cancels every unused invite and link.
 - While you're sharing, the window says for how long (for example "Sharing · 2 guests connected · 25 min") and shows "*name* joined." or "*name* left." when guests come and go.
@@ -220,7 +221,7 @@ The app is `build/RemotePlayWhatever/RemotePlayWhatever.app`.
 
 ## Credits
 - [m4dEngi](https://github.com/m4dEngi), who made RemotePlayWhatever, and @Jondycz, who had the original idea and tested it.
-- @okabeeer for the Steam-update fix ([pull request #289](https://github.com/m4dEngi/RemotePlayWhatever/pull/289)).
+- @okabeeer for the Steam-update fix ([pull request #289](https://github.com/m4dEngi/RemotePlayWhatever/pull/289)), and for [RemotePlayForge](https://github.com/okabeeer/RemotePlayForge)'s way of finding a game Steam doesn't show as played.
 - [Rammy-3](https://github.com/Rammy-3/RemotePlayWhatever) for Steam-style friend invites in the game's own Remote Play group, the debug log and the Visual Studio 2022 build fix.
 - [Open Steamworks](https://github.com/m4dEngi/open-steamworks) for the Steam client interfaces, and [wxWidgets](https://www.wxwidgets.org/) for the window.
 - Project Nayuki's [QR Code generator library](https://www.nayuki.io/page/qr-code-generator-library) (MIT License).
