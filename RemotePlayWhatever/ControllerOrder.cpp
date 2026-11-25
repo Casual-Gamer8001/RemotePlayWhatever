@@ -43,9 +43,10 @@ bool ControllerOrder::Swap(int slotA, int slotB)
     {
         return false;
     }
-    // Exactly what Steam's panel does: the swap with the current counter
-    // (Steam refuses it if the controllers changed in between), then the
-    // Remote Play manager is told, then both controllers rumble.
+    // What Steam's panel does: the swap with the current counter (Steam
+    // refuses it if the controllers changed in between), then the Remote Play
+    // manager is told. Steam's panel then rumbles both controllers too; here
+    // only Identify rumbles, so moving a controller doesn't buzz anyone.
     const int32 indexA = controllers->GetControllerIndexForGamepadIndex(slotA);
     const int32 indexB = controllers->GetControllerIndexForGamepadIndex(slotB);
     const uint32 counter = controllers->GetGamepadIndexChangeCounter();
@@ -64,11 +65,6 @@ bool ControllerOrder::Swap(int slotA, int slotB)
         m_pending.expected = counter + 1;
         m_pending.at = NowMs();
         CheckPutBack();
-    }
-    Identify(slotA);
-    Identify(slotB);
-    if (swapped)
-    {
         // Until Steam lists the new order, the lists we have show the swap.
         for (std::map<uint32, std::vector<ControllerSlot>>::iterator it = m_lists.begin(); it != m_lists.end(); ++it)
         {

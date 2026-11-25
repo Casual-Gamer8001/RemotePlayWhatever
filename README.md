@@ -87,7 +87,7 @@ For a Steam game, guests only ever see the game's window. For a **non-Steam game
 **Guests**
 - A guest controls window with a card for every guest, including Steam Link guests who joined without a Steam account: keyboard, mouse and controller switches, how long they've been there, and a **Remove** button.
 - An **Everyone** row and [in-game shortcuts](#in-game-shortcuts) to switch everyone's keyboard, mouse or controller at once, take all control back, and give it back.
-- On Windows, **Controller order** in the guest controls window: which player each controller is (yours and your guests', with their names and the kind of controller), the way Steam's own Remote Play Together panel shows it. Move a controller up or down to change which player it is in the game (both controllers rumble, so their owners know); **Identify** rumbles one controller. Many games only use players 1 to 4; others, such as the Ryujinx emulator, also take player 5 and up.
+- On Windows, **Controller order** in the guest controls window: which player each controller is (yours and your guests', with their names and the kind of controller), the way Steam's own Remote Play Together panel shows it. Move a controller up or down to change which player it is in the game; **Identify** rumbles a controller, so its owner knows which it is (moving one doesn't). Many games only use players 1 to 4; others, such as the Ryujinx emulator, also take player 5 and up.
 - What each friend may use is remembered for the next time they join.
 - A short sound and a message when a guest joins or leaves, and on Windows a notification by the clock while you're in the game (turn them off under **Options**).
 

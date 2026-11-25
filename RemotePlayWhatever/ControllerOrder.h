@@ -70,7 +70,7 @@ public:
     uint32 Revision() const { return m_revision; }
 
     // Swap the controllers of two slots (either may be empty), like dragging
-    // a player onto another in Steam's panel. Both controllers rumble.
+    // a player onto another in Steam's panel (without its rumble).
     bool Swap(int slotA, int slotB);
     // Rumble the controller in a slot, so its owner knows which it is.
     void Identify(int slot) const;
