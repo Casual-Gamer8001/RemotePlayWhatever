@@ -7,9 +7,6 @@
 #include "GameInfo.h"
 #include "SteamStuff.h"
 #include "SteamUIScan.h"
-#ifdef __WXMSW__
-#include <wx/msw/wrapwin.h>
-#endif
 
 // steam client context
 
