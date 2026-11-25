@@ -133,6 +133,9 @@ public:
     // A guest's choices are saved per SteamID and applied when they rejoin.
     const std::vector<ConnectedGuest>& Guests() const { return m_guests; }
     void SetGuestInput(uint64 key, bool kbd, bool mouse, bool ctrl);
+    // The Remote Play Together group invites go to (1, the one stock RPW
+    // always used, until the first invite sets one up).
+    uint32 GroupID() const { return m_groupID; }
 
     // Everyone at once (control window "Everyone" row and hotkeys).
     // which: 0 = keyboard, 1 = mouse, 2 = controller. With remember, each

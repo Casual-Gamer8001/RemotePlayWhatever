@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstring>
 #include <ctime>
 #include "ControlFrame.h"
 #include <wx/display.h>
@@ -67,7 +68,9 @@ ControlFrame::ControlFrame(RemotePlayInviteHandler* handler) :
     m_pollTicks(0),
     m_waitingForNames(false),
     m_hotkeysActive(false),
-    m_place(nullptr)
+    m_place(nullptr),
+    m_controllerRevision(0),
+    m_controllerTicks(0)
 {
     for (int i = 0; i < 3; ++i)
     {
@@ -355,6 +358,17 @@ void ControlFrame::OnPoll(wxTimerEvent&)
     {
         RefreshRows();
     }
+    // The controller order when Steam sends a new list, and every 2 s (a
+    // controller can come or go without one).
+    if (m_controllerOrder.Revision() != m_controllerRevision || ++m_controllerTicks >= 4)
+    {
+        m_controllerRevision = m_controllerOrder.Revision();
+        m_controllerTicks = 0;
+        if (!RefreshControllers(ControllerViews()))
+        {
+            Rebuild();
+        }
+    }
 
     // Pop up when a new guest joins, without taking focus away from the game
     // (which can minimize a fullscreen game). Flash the taskbar button instead.
@@ -496,6 +510,231 @@ void ControlFrame::RefreshRows()
     }
 }
 
+wxString ControlFrame::ControllerOwner(const RemotePlayPlayer_t& player) const
+{
+    // Steam lists the host's own controllers under the host, with guest ID 0.
+    if (player.m_unGuestID == 0 && player.m_playerID == GClientContext()->SteamUser()->GetSteamID())
+    {
+        return "You";
+    }
+    const uint64 key = RemotePlayInviteHandler::GuestKey(player);
+    const std::vector<ConnectedGuest>& guests = m_handler->Guests();
+    for (size_t i = 0; i < guests.size(); ++i)
+    {
+        if (guests[i].key == key)
+        {
+            bool placeholder = false;
+            return GuestName(guests[i], placeholder);
+        }
+    }
+    if (player.m_playerID.GetAccountID() != 0)
+    {
+        const char* persona = GClientContext()->SteamFriends()->GetFriendPersonaName(player.m_playerID);
+        if (persona && *persona && std::strcmp(persona, "[unknown]") != 0)
+        {
+            return wxString::FromUTF8(persona);
+        }
+    }
+    return wxString::Format("Guest %u", player.m_unGuestID);
+}
+
+std::vector<ControlFrame::ControllerView> ControlFrame::ControllerViews() const
+{
+    std::vector<ControllerView> views;
+    if (m_handler->Guests().empty() || !m_controllerOrder.CanMove())
+    {
+        return views;
+    }
+    // The list Steam keeps for this session's group (the last one it sent if
+    // it hasn't sent one for that group).
+    uint32 group = m_handler->GroupID();
+    if (!m_controllerOrder.HasList(group))
+    {
+        group = m_controllerOrder.LastGroup();
+    }
+    const std::vector<ControllerSlot> listed = m_controllerOrder.Slots(group);
+    std::vector<const ControllerSlot*> known(ControllerOrder::kSlots, nullptr);
+    std::vector<bool> inUse(ControllerOrder::kSlots, false);
+    int last = ControllerOrder::kPlayerSlots - 1;
+    for (size_t i = 0; i < listed.size(); ++i)
+    {
+        known[listed[i].slot] = &listed[i];
+        inUse[listed[i].slot] = true;
+        last = std::max(last, listed[i].slot);
+    }
+    // Steam is asked about the slots it didn't list: players 1-4, and the few
+    // after them (moving player 4 down puts a controller there), so every
+    // controller there has a row even without a list.
+    static const int kAskedSlots = ControllerOrder::kPlayerSlots + 4;
+    for (int slot = 0; slot < kAskedSlots; ++slot)
+    {
+        if (!inUse[slot] && m_controllerOrder.SlotInUse(slot))
+        {
+            inUse[slot] = true;
+            last = std::max(last, slot);
+        }
+    }
+    for (int slot = 0; slot <= last; ++slot)
+    {
+        ControllerView view;
+        view.slot = slot;
+        view.inUse = inUse[slot];
+        if (known[slot])
+        {
+            view.text = ControllerOwner(known[slot]->player) + Ui::Separator() +
+                        wxString::FromUTF8(ControllerOrder::TypeName(known[slot]->type).c_str());
+        }
+        else
+        {
+            view.text = view.inUse ? "A controller" : "No controller";
+        }
+        views.push_back(view);
+    }
+    return views;
+}
+
+void ControlFrame::AddControllerSection()
+{
+    m_controllerRows.clear();
+    m_controllerRevision = m_controllerOrder.Revision();
+    m_controllerTicks = 0;
+    const std::vector<ControllerView> views = ControllerViews();
+    if (views.empty())
+    {
+        return;
+    }
+
+    wxStaticText* title = new wxStaticText(m_container, wxID_ANY, "Controller order");
+    title->SetFont(Ui::SemiBold(GetFont()));
+    Ui::SetColours(title, nullptr, &Ui::kText);
+    m_sizer->Add(title, 0, wxLEFT | wxRIGHT, FromDIP(14));
+    m_sizer->AddSpacer(FromDIP(2));
+    WrapLabel* about = new WrapLabel(m_container, "Games give out players 1 to 4 in this order. Move a controller up "
+                                                  "or down to change who's who; it rumbles so its owner knows.");
+    about->SetFont(GetFont().Scaled(0.92f));
+    Ui::SetColours(about, nullptr, &Ui::kTextSecondary);
+    m_sizer->Add(about, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(14));
+
+    Card* card = new Card(m_container);
+    card->Content()->AddSpacer(FromDIP(8));
+    for (size_t i = 0; i < views.size(); ++i)
+    {
+        ControllerRow row;
+        row.slot = views[i].slot;
+        const int slot = row.slot;
+        wxBoxSizer* line = new wxBoxSizer(wxHORIZONTAL);
+
+        wxStaticText* player = new wxStaticText(card, wxID_ANY, wxString::Format("Player %d", slot + 1));
+        player->SetFont(Ui::SemiBold(GetFont()));
+        Ui::SetColours(player, nullptr, &Ui::kText);
+        player->SetMinSize(wxSize(std::max(FromDIP(64), player->GetBestSize().x), -1));
+        line->Add(player, 0, wxALIGN_CENTER_VERTICAL);
+
+        row.text = new wxStaticText(card, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize,
+                                    wxST_NO_AUTORESIZE | wxST_ELLIPSIZE_END);
+        row.text->SetMinSize(wxSize(FromDIP(60), row.text->GetCharHeight()));
+        line->Add(row.text, 1, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(8));
+
+        row.identify = new FlatButton(card, "Identify", FlatButton::Secondary, Ui::kGlyphController, true);
+        row.identify->SetFont(GetFont().Scaled(0.92f));
+        row.identify->SetToolTip(wxString::Format("Rumble player %d's controller, so its owner knows which it is.", slot + 1));
+        row.identify->Bind(wxEVT_BUTTON, [this, slot](wxCommandEvent&) { m_controllerOrder.Identify(slot); });
+        line->Add(row.identify, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(6));
+
+        row.up = new FlatButton(card, "Move up", FlatButton::Secondary, Ui::kGlyphUp, true);
+        row.up->SetIconOnly(true);
+        row.up->Bind(wxEVT_BUTTON, [this, slot](wxCommandEvent&) { MoveController(slot, slot - 1); });
+        line->Add(row.up, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(6));
+
+        row.down = new FlatButton(card, "Move down", FlatButton::Secondary, Ui::kGlyphDown, true);
+        row.down->SetIconOnly(true);
+        row.down->Bind(wxEVT_BUTTON, [this, slot](wxCommandEvent&) { MoveController(slot, slot + 1); });
+        line->Add(row.down, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(4));
+
+        card->Content()->Add(line, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(10));
+        card->Content()->AddSpacer(FromDIP(i + 1 < views.size() ? 6 : 8));
+        m_controllerRows.push_back(row);
+    }
+    m_sizer->Add(card, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(12));
+    m_sizer->AddSpacer(FromDIP(12));
+    RefreshControllers(views);
+}
+
+bool ControlFrame::RefreshControllers(const std::vector<ControllerView>& views)
+{
+    if (views.size() != m_controllerRows.size())
+    {
+        return false;
+    }
+    for (size_t i = 0; i < views.size(); ++i)
+    {
+        if (views[i].slot != m_controllerRows[i].slot)
+        {
+            return false;
+        }
+    }
+    for (size_t i = 0; i < views.size(); ++i)
+    {
+        const ControllerView& view = views[i];
+        ControllerRow& row = m_controllerRows[i];
+        if (row.text->GetLabelText() != view.text)
+        {
+            row.text->SetLabelText(view.text);
+            row.text->SetToolTip(view.text);
+        }
+        const wxColour& colour = view.inUse ? Ui::kText : Ui::kTextMuted;
+        if (row.text->GetForegroundColour() != colour)
+        {
+            Ui::SetColours(row.text, nullptr, view.inUse ? &Ui::kText : &Ui::kTextMuted);
+            row.text->Refresh();
+        }
+        // A controller moves up or down by swapping with the next slot (which
+        // may be empty). Below player 4 it can go down to the first slot
+        // games don't use, out of the players' way.
+        const bool canUp = view.inUse && view.slot > 0;
+        const bool canDown = view.inUse && view.slot + 1 < ControllerOrder::kSlots &&
+                             (i + 1 < views.size() || view.slot < ControllerOrder::kPlayerSlots);
+        if (row.identify->IsEnabled() != view.inUse)
+        {
+            row.identify->Enable(view.inUse);
+        }
+        if (row.up->IsEnabled() != canUp)
+        {
+            row.up->Enable(canUp);
+        }
+        if (row.down->IsEnabled() != canDown)
+        {
+            row.down->Enable(canDown);
+        }
+        const wxString upTip = wxString::Format("Make this controller player %d", view.slot);
+        const wxString downTip = wxString::Format("Make this controller player %d", view.slot + 2);
+        if (row.up->GetToolTipText() != upTip)
+        {
+            row.up->SetToolTip(upTip);
+        }
+        if (row.down->GetToolTipText() != downTip)
+        {
+            row.down->SetToolTip(downTip);
+        }
+    }
+    return true;
+}
+
+void ControlFrame::MoveController(int slot, int to)
+{
+    m_controllerOrder.Swap(slot, to);
+    // Steam lists the new order a moment later (OnPoll shows it); show what's
+    // known now, after the click is handled (a rebuild destroys the button).
+    CallAfter([this]()
+    {
+        m_controllerRevision = m_controllerOrder.Revision();
+        if (!RefreshControllers(ControllerViews()))
+        {
+            Rebuild();
+        }
+    });
+}
+
 void ControlFrame::Rebuild()
 {
     m_lastRevision = m_handler->RosterRevision();
@@ -504,6 +743,7 @@ void ControlFrame::Rebuild()
     Freeze();
     m_sizer->Clear(true);   // destroy the old cards
     m_rows.clear();
+    m_controllerRows.clear();
     for (int t = 0; t < 3; ++t)
     {
         m_everyoneToggles[t] = nullptr;
@@ -618,6 +858,8 @@ void ControlFrame::Rebuild()
             // First for Tab (and screen readers) too, not just on screen.
             everyone->MoveBeforeInTabOrder(m_rows[0].remove->GetParent());
         }
+
+        AddControllerSection();
     }
 
     RefreshRows();

@@ -1,9 +1,15 @@
 #include <cstdlib>
+#include <vector>
 #include <wx/clipbrd.h>
+#include <wx/ffile.h>
 #include <wx/filename.h>
 #include <wx/stdpaths.h>
 #include "GameInfo.h"
 #include "SteamStuff.h"
+#include "SteamUIScan.h"
+#ifdef __WXMSW__
+#include <wx/msw/wrapwin.h>
+#endif
 
 // steam client context
 
@@ -18,6 +24,7 @@ ClientContext::ClientContext():
     m_pSteamRemotePlay(nullptr),
     m_pClientEngine(nullptr),
     m_shortcutsTried(false),
+    m_controllersTried(false),
     m_ShuttingDown(false),
     m_Initialized(false),
     m_initError(InitOK)
@@ -256,6 +263,91 @@ CShortcutsByName* ClientContext::Shortcuts()
                       m_shortcuts.CanAddTemporary() ? "possible" : "not possible");
     }
     return &m_shortcuts;
+}
+
+#ifdef __WXMSW__
+// The folder of the program file (DLL) that has this address in it.
+static wxString ModuleFolder(const void* address)
+{
+    HMODULE module = NULL;
+    if (!::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                              reinterpret_cast<LPCWSTR>(address), &module))
+    {
+        return wxString();
+    }
+    std::vector<wchar_t> path(1024);
+    for (;;)
+    {
+        const DWORD n = ::GetModuleFileNameW(module, &path[0], (DWORD)path.size());
+        if (n == 0)
+        {
+            return wxString();
+        }
+        if (n < path.size())
+        {
+            return wxFileName(wxString(&path[0], n)).GetPath();
+        }
+        if (path.size() >= 32768)
+        {
+            return wxString();
+        }
+        path.resize(path.size() * 2);
+    }
+}
+
+// Which IClientEngine slot gives Steam Input for a pipe in the running Steam,
+// read from the SteamUI.dll in Steam's folder (where its steamclient64.dll,
+// which the engine comes from, is); see SteamUIScan.h. -1 if it can't be.
+static int ControllerSerializedSlot(void* engine)
+{
+    void* vtable = NULL;
+    if (!clientvt::ReadPointerSafely(engine, &vtable) || !vtable)
+    {
+        return -1;
+    }
+    const wxString folder = ModuleFolder(vtable);
+    const wxString path = wxFileName(folder, "steamui.dll").GetFullPath();
+    wxFFile file;
+    if (folder.empty() || !wxFileExists(path) || !file.Open(path, "rb"))
+    {
+        clientvt::Log("[rp] Steam Input: no SteamUI.dll in Steam's folder \"%s\"\n", (const char*)folder.utf8_str());
+        return -1;
+    }
+    const wxFileOffset size = file.Length();
+    std::vector<unsigned char> data;
+    if (size > 0 && size < 512 * 1024 * 1024)
+    {
+        data.resize((size_t)size);
+        if (file.Read(&data[0], data.size()) != data.size())
+        {
+            data.clear();
+        }
+    }
+    const int slot = data.empty() ? -1 : steamui::ControllerSerializedSlot(&data[0], data.size());
+    clientvt::Log("[rp] Steam Input: SteamUI.dll (%lld bytes) gives engine slot %d\n", (long long)size, slot);
+    return slot;
+}
+#endif
+
+CControllerSerializedByName* ClientContext::ControllerSerialized()
+{
+    if (!m_controllersTried && m_Initialized && m_pClientEngine)
+    {
+        m_controllersTried = true;
+        int slot = -1;
+#ifdef __WXMSW__
+        slot = ControllerSerializedSlot(m_pClientEngine);
+#endif
+        void* controllers = NULL;
+        if (slot > 0 && clientvt::CallPipeGetterAt(m_pClientEngine, slot, m_hPipe, &controllers))
+        {
+            m_controllers.Bind(controllers);
+        }
+        clientvt::Log("[rp] Steam Input interface: %s (%zu named methods, moving controllers %s)\n",
+                      controllers ? "found" : "not found", m_controllers.Count(),
+                      m_controllers.CanMove() ? "possible" : "not possible");
+    }
+    return &m_controllers;
 }
 
 // helper functions

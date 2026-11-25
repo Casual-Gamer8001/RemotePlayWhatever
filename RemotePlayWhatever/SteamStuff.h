@@ -131,6 +131,15 @@ public:
             Invoke<void>("DisbandRemotePlayTogetherGroup", group);
         }
     }
+    // Steam's panel calls this (no arguments) right after it moves a
+    // controller to another player slot.
+    void OnRemotePlayUIMovedController()
+    {
+        if (Has("OnRemotePlayUIMovedController"))
+        {
+            Invoke<void>("OnRemotePlayUIMovedController");
+        }
+    }
 };
 
 // IClientShortcuts (Steam's non-Steam game shortcuts), resolved by name like
@@ -182,6 +191,47 @@ public:
     }
 };
 
+// IClientControllerSerialized (Steam Input), resolved by name like the others,
+// with what moving a controller to another player needs. Steam's Remote Play
+// Together panel does it like this (SteamUI.dll, Steam 1794536281): read the
+// counter, swap the two slots with it (the swap is refused if the controllers
+// changed in between), then tell the Remote Play manager
+// (OnRemotePlayUIMovedController); and it rumbles a slot's controller to show
+// whose it is. A "gamepad index" is a player slot (0 = player 1); a
+// "controller index" is Steam's number for the device itself. The arguments of
+// each were checked in steamclient64.dll 11.23.65.88's
+// IClientControllerSerializedMap stubs: the counter is 4 bytes; the swap takes
+// it and two 4-byte slots and returns a 1-byte bool; the other two take one
+// 4-byte number (the first returns 4 bytes).
+class CControllerSerializedByName : public clientvt::NamedVTable
+{
+public:
+    bool CanMove() const
+    {
+        return Ok() && Has("GetGamepadIndexChangeCounter") && Has("BSwapGamepadIndex");
+    }
+    uint32 GetGamepadIndexChangeCounter() const
+    {
+        return Has("GetGamepadIndexChangeCounter") ? Invoke<uint32>("GetGamepadIndexChangeCounter") : 0;
+    }
+    bool BSwapGamepadIndex(uint32 counter, int32 slotA, int32 slotB) const
+    {
+        return Has("BSwapGamepadIndex") && Invoke<bool>("BSwapGamepadIndex", counter, slotA, slotB);
+    }
+    // -1 if no controller has that slot.
+    int32 GetControllerIndexForGamepadIndex(int32 slot) const
+    {
+        return Has("GetControllerIndexForGamepadIndex") ? Invoke<int32>("GetControllerIndexForGamepadIndex", slot) : -1;
+    }
+    void IdentifyControllerRumbleEffect(int32 controllerIndex) const
+    {
+        if (Has("IdentifyControllerRumbleEffect"))
+        {
+            Invoke<void>("IdentifyControllerRumbleEffect", controllerIndex);
+        }
+    }
+};
+
 class ClientContext
 {
 public:
@@ -214,6 +264,11 @@ public:
     // Ok() is false if this Steam doesn't have it where expected (then "Share
     // my screen" isn't offered); nothing else depends on it.
     CShortcutsByName* Shortcuts();
+    // Steam Input, looked up the first time it's needed (Windows only: its
+    // place in Steam's engine is read from the SteamUI.dll next to Steam's
+    // library). Its CanMove() is false if it isn't there; then the guest
+    // window doesn't offer to change the controller order.
+    CControllerSerializedByName* ControllerSerialized();
 
     bool Init();
     EInitError InitError() const { return m_initError; }
@@ -235,6 +290,8 @@ private:
     CRemoteClientManagerByName m_remoteManager;
     CShortcutsByName m_shortcuts;
     bool m_shortcutsTried;
+    CControllerSerializedByName m_controllers;
+    bool m_controllersTried;
 
     bool m_ShuttingDown;
     bool m_Initialized;

@@ -87,6 +87,7 @@ Only the game's window is shared for a Steam game. For a **non-Steam game**, Ste
 **Guests**
 - A guest controls window with a card for every guest, including Steam Link guests who joined without a Steam account: keyboard, mouse and controller switches, how long they've been there, and a **Remove** button.
 - An **Everyone** row and [in-game shortcuts](#in-game-shortcuts) to switch everyone's keyboard, mouse or controller at once, take all control back, and give it back.
+- On Windows, **Controller order** in the guest controls window: which player each controller is (yours and your guests', with their names and the kind of controller), the way Steam's own Remote Play Together panel shows it. Move a controller up or down to change who's player 1 to 4 in the game; **Identify** rumbles a controller so its owner knows which one it is.
 - What each friend may use is remembered for the next time they join.
 - A short sound and a message when a guest joins or leaves, and on Windows a notification by the clock while you're in the game (turn them off under **Options**).
 
@@ -163,6 +164,7 @@ A shortcut is left out if your keyboard layout uses that key combination to type
     - On Windows, a game that takes **exclusive control** of the sound device bypasses Steam. Turn exclusive mode off in the game or emulator (in RetroArch: **Settings > Audio > Output > WASAPI Exclusive Mode**), or for the device: **Control Panel > Sound**, the device's **Properties > Advanced**, untick **Allow applications to take exclusive control of this device**.
     - Ask your guest to check the volume on their device and in the Steam Link app.
 - **A Steam update broke the app**: the app says so when it starts and, on Windows, offers a fixed version as soon as there is one. Otherwise check the [releases page](https://github.com/Casual-Gamer8001/RemotePlayWhatever/releases) or [open an issue](https://github.com/Casual-Gamer8001/RemotePlayWhatever/issues).
+- **Your guest is the wrong player in the game** (player 3 instead of player 2, say): in the guest controls window, under **Controller order**, move their controller up. If the game doesn't follow the new order right away, go back to its menu, or restart it. **Controller order** isn't shown on Linux and macOS, nor if a Steam update changed what it needs.
 - **Sharing doesn't stop after a session ends**: restart Steam.
 - **Reporting a problem**: on Windows, put an empty file named `rpw-debug.log` next to `RemotePlayWhatever.exe` and open the app again. It then writes what it does with Steam (invites, groups, guests joining) into that file; attach it to your [issue](https://github.com/Casual-Gamer8001/RemotePlayWhatever/issues), and delete the file to stop. (On Linux and macOS, start the app from a terminal with `RPW_VTDEBUG=1` set.)
 

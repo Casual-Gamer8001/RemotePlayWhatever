@@ -91,6 +91,8 @@ namespace Ui
     const wchar_t kGlyphWarning = 0xE7BA;
     const wchar_t kGlyphInfo = 0xE946;
     const wchar_t kGlyphSearch = 0xE721;
+    const wchar_t kGlyphUp = 0xE74A;
+    const wchar_t kGlyphDown = 0xE74B;
 
     // " · ", between parts of a line such as "Sharing · 1 guest connected".
     wxString Separator();
