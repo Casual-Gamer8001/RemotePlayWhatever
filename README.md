@@ -63,7 +63,7 @@ The macOS version is new and hasn't been tested with a real Mac yet. Please [ope
 5. Switch back to your game and play. To choose who can use the keyboard, mouse or a controller, open the guest controls window (**Session > Show guest controls**) or use the [in-game shortcuts](#in-game-shortcuts).
 6. When you're done, **End session** disconnects everyone and stops sharing. Closing the game does the same.
 
-Only the game's window is shared for a Steam game. For a **non-Steam game**, Steam shares your **whole screen**: Remote Play Whatever asks first (tick **Don't ask again** for a game you trust), and on Windows it keeps its own windows, including the guest link, out of what your guests see. **Share my screen** always shares the whole screen, but not its sound; **Stop sharing my screen** or **End session** stops it.
+For a Steam game, guests only ever see the game's window. For a **non-Steam game**, they see the game while it's in front and your **whole screen** whenever it isn't: Remote Play Whatever asks first (tick **Don't ask again** for a game you trust), and on Windows it keeps its own windows, including the guest link, out of what your guests see. **Share my screen** always shares the whole screen, but not its sound; **Stop sharing my screen** or **End session** stops it.
 
 ## What this fork adds
 **Works with current Steam**
@@ -155,7 +155,7 @@ A shortcut is left out if your keyboard layout uses that key combination to type
 - **Your guest can only watch**: Steam didn't set up a Remote Play group for the game. Quit the game, start it again through Steam, and send a new invite.
 - **"Steam doesn't send Remote Play Together invites while you're Invisible"**: set your Steam status to Online, or send a guest link instead.
 - **Your friend didn't get the invite**: use **Copy link** next to "Waiting for *name*" and send them the link another way.
-- **Your guest sees your whole screen**: that's how Steam shares a non-Steam game. Steam games share only their own window.
+- **Your guest sees your whole screen**: with a non-Steam game, Steam shows guests your whole screen whenever the game isn't in front. Click the game. (Steam games share only their own window; with **Share my screen** guests always see the whole screen.)
 - **Your guest sees "Host is busy" or "Input is temporarily disabled while the host is busy"**: with a Steam game, Steam shows your guests only the game, and only while it's in front on your PC, and it pauses their input while Steam's overlay is open in the game. Click the game, and if the overlay is open, close it with Shift+Tab. (Ctrl+Alt+L copies a guest link without leaving the game.)
 - **Your guests hear no sound**:
     - Steam sends your guests the sound of the game it's sharing, recorded inside the game. With a non-Steam game, that's only while its window is in front: when you click another window, guests see your whole screen with no sound until you go back to the game.

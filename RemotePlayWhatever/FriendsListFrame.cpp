@@ -1265,13 +1265,14 @@ void FriendsListFrame::UpdateStatus()
             state += Ui::Separator() + length;
         }
         detail = ourScreen ? "Guests can see your whole screen but can't hear it" :
-                 desktop ? "Guests can see your whole screen" : "Only the game is shared, not your screen";
+                 desktop ? "Guests see your whole screen when the game isn't in front" :
+                           "Only the game is shared, not your screen";
         detailColour = desktop ? &Ui::kWarnText : &Ui::kTextSecondary;
         dot = Ui::kGood;
         trayText = "Sharing " + gameInText + (sessionMinutes >= 1 ? " for " + length : wxString()) + ": " +
                    (guests == 0 ? wxString("waiting for guests to join.") : who + ".") +
                    (ourScreen ? " Guests can see your whole screen but can't hear it." :
-                    desktop ? " Guests can see your whole screen." : "");
+                    desktop ? " Guests see your whole screen when the game isn't in front." : "");
     }
     else if (screenStarting)
     {
@@ -1304,12 +1305,12 @@ void FriendsListFrame::UpdateStatus()
     else
     {
         state = "Ready to share";
-        detail = nonSteam ? "Not a Steam game, so your whole screen is shared"
+        detail = nonSteam ? "Not a Steam game: guests see your whole screen when it isn't in front"
                           : "Only the game will be shared, not your screen";
         detailColour = nonSteam ? &Ui::kWarnText : &Ui::kTextSecondary;
         dot = Ui::kGood;
         trayText = "Ready to share: " + gameInText +
-                   (nonSteam ? " (non-Steam game, so your whole screen will be shared)" : "");
+                   (nonSteam ? " (not a Steam game: guests see your whole screen when it isn't in front)" : "");
     }
     if (!m_notice.empty())
     {
@@ -2314,8 +2315,9 @@ bool FriendsListFrame::ConfirmScreenSharing()
     const uint32 account = GClientContext()->SteamUser()->GetSteamID().GetAccountID();
     const wxString name = GetGameName(game, account);
     wxRichMessageDialog dialog(this,
-                               "This isn't a Steam game, so Remote Play shares your whole screen with your guests, "
-                               "not just the game. Remote Play Whatever keeps its own windows out of what they see.\n\n"
+                               "This isn't a Steam game, so your guests see only the game while it's in front, but "
+                               "whenever you switch to another window, Remote Play shows them your whole screen. "
+                               "Remote Play Whatever keeps its own windows out of what they see.\n\n"
                                "If the sharing doesn't stop when the session ends, restart Steam.\n\n"
                                "Continue?",
                                "Share your whole screen?",
@@ -2452,7 +2454,8 @@ void FriendsListFrame::OnGuestLinkHotKey()
     if (desktop && !m_pRemoteInvite->IsSharingDesktop() && !WholeScreenAllowed(game.ToUint64()))
     {
         Announce("Create this link in Remote Play Whatever",
-                 "This isn't a Steam game, so guests would see your whole screen. Create the first link from the main window.",
+                 "This isn't a Steam game, so guests would see your whole screen whenever it isn't in front. "
+                 "Create the first link from the main window.",
                  false);
         return;
     }
