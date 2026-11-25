@@ -48,7 +48,9 @@ class ControllerOrder
 {
 public:
     // Steam has 20 slots. Games that take XInput controllers see only the
-    // first 4 (Steam's panel calls those the priority slots).
+    // first 4 (Steam's panel calls those the priority slots); others see
+    // later ones too (Ryujinx, which reads Steam's virtual controllers through
+    // SDL's raw input, took a controller in slot 5).
     static const int kSlots = 20;
     static const int kPlayerSlots = 4;
 
@@ -77,10 +79,26 @@ public:
     static std::string TypeName(int32 type);
 
 private:
+    // The last swap, in case Steam puts it back (it does with the first move
+    // after a guest joins): checked when Steam's change counter moves on.
+    struct PendingSwap
+    {
+        bool active;
+        int slotA;
+        int slotB;
+        int32 indexA;       // the controller in slotA before the swap (-1: none)
+        int32 indexB;
+        uint32 expected;    // the change counter right after the swap
+        long long at;       // when it was made (ms)
+    };
+    // Swaps again, once, if Steam put the pending swap back within 3 s.
+    void CheckPutBack();
+
     std::map<uint32, std::vector<ControllerSlot>> m_building;
     std::map<uint32, std::vector<ControllerSlot>> m_lists;
     uint32 m_lastGroup;
     uint32 m_revision;
+    PendingSwap m_pending;
 
     STEAM_CALLBACK(ControllerOrder, OnClear, RemoteClientRemotePlayClearControllers_t, m_clearCb);
     STEAM_CALLBACK(ControllerOrder, OnIndexSet, RemoteClientRemotePlayControllerIndexSet_t, m_indexSetCb);

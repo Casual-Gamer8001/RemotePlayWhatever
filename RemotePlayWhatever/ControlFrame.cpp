@@ -609,8 +609,9 @@ void ControlFrame::AddControllerSection()
     Ui::SetColours(title, nullptr, &Ui::kText);
     m_sizer->Add(title, 0, wxLEFT | wxRIGHT, FromDIP(14));
     m_sizer->AddSpacer(FromDIP(2));
-    WrapLabel* about = new WrapLabel(m_container, "Games give out players 1 to 4 in this order. Move a controller up "
-                                                  "or down to change who's who; it rumbles so its owner knows.");
+    WrapLabel* about = new WrapLabel(m_container, "Games give out players in this order (many only use players 1 to 4). "
+                                                  "Move a controller up or down to change who's who; it rumbles so its "
+                                                  "owner knows.");
     about->SetFont(GetFont().Scaled(0.92f));
     Ui::SetColours(about, nullptr, &Ui::kTextSecondary);
     m_sizer->Add(about, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(14));
