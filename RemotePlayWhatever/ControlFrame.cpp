@@ -611,7 +611,8 @@ void ControlFrame::AddControllerSection()
     m_sizer->AddSpacer(FromDIP(2));
     WrapLabel* about = new WrapLabel(m_container, "Games give out players in this order (many only use players 1 to 4). "
                                                   "Move a controller up or down to change who's who. Identify "
-                                                  "rumbles a controller, so its owner knows which it is.");
+                                                  "rumbles a controller, so its owner knows which it is. Plugged in "
+                                                  "another controller? Click the game's window and it shows up here.");
     about->SetFont(GetFont().Scaled(0.92f));
     Ui::SetColours(about, nullptr, &Ui::kTextSecondary);
     m_sizer->Add(about, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(14));
