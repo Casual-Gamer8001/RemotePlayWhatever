@@ -714,7 +714,8 @@ void AppUpdater::ReadInfo(const wxString& text)
         {
             const wxString key = line.BeforeFirst('=').Trim().Trim(false);
             const wxString value = line.AfterFirst('=').Trim().Trim(false);
-            // Any number of "note=" lines: what's new, oldest change first.
+            // Any number of "note=" lines: what's new, newest change first (the
+            // release workflow writes at most ten).
             if (key == "note")
             {
                 if (!value.empty() && notes.size() < 10)

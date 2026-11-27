@@ -6,9 +6,11 @@ name: Build
 # that branch's test (pre-release) build, tagged branch-<name>. The Windows
 # job creates the release, with an update.txt (build number, tag, package
 # name, SHA-256 and up to ten "note=" lines with the commit titles since the
-# previous release, oldest first), which the Windows app reads to offer
-# updates. The Linux, Mac and Decky jobs then add their downloads to that
-# release, so the Windows build is published even if one of them fails.
+# previous release, newest first; with more than ten, the newest nine and a
+# line saying how many more there are), which the Windows app reads to offer
+# updates. The release notes list every change. The Linux, Mac and Decky jobs
+# then add their downloads to that release, so the Windows build is published
+# even if one of them fails.
 
 on:
   push:
@@ -124,23 +126,25 @@ jobs:
           $short = $env:GITHUB_SHA.Substring(0, 7)
           $subject = (git log -1 --format=%s).Trim()
           $tag = if ($env:GITHUB_REF_NAME -eq 'master') { "build-$env:GITHUB_RUN_NUMBER" } else { 'branch-' + ($env:GITHUB_REF_NAME -replace '[^A-Za-z0-9._-]', '-') }
-          # What's new since the previous release: commit titles, oldest first (plain ASCII, one per line).
+          # What's new since the previous release: commit titles, newest first (plain ASCII, one per line).
           $previous = git describe --tags --abbrev=0 --match 'build-*' 'HEAD^' 2>$null
           $global:LASTEXITCODE = 0
-          $titles = if ($previous) { git log --reverse --no-merges --format=%s "$previous..HEAD" } else { git log -1 --format=%s }
+          $titles = if ($previous) { git log --no-merges --format=%s "$previous..HEAD" } else { git log -1 --format=%s }
           $notes = @($titles | Where-Object { $_ -and $_ -notmatch '^(TEST ONLY|Merge |README)' } | ForEach-Object {
             $t = $_ -replace "[\u2018\u2019]", "'" -replace '[\u201C\u201D]', '"' -replace '[\u2013\u2014]', '-'
             $t = ($t.Normalize([Text.NormalizationForm]::FormD) -replace '[^\x20-\x7E]', '').Trim()
             if ($t.Length -gt 100) { $t.Substring(0, 97) + '...' } else { $t }
-          } | Select-Object -First 10)
+          })
           # What the app reads to find out whether there's a newer build, where it is, how to check it and what's new.
+          # The app shows at most ten notes: the newest nine, then where the rest are.
           $hash = (Get-FileHash $env:PACKAGE -Algorithm SHA256).Hash.ToLowerInvariant()
           $info = "build=$env:GITHUB_RUN_NUMBER`ntag=$tag`nfile=$env:PACKAGE`nsha256=$hash`n"
-          foreach ($n in $notes) { $info += "note=$n`n" }
+          $appNotes = if ($notes.Count -gt 10) { @($notes | Select-Object -First 9) + "...and $($notes.Count - 9) more: Help > Release notes" } else { $notes }
+          foreach ($n in $appNotes) { $info += "note=$n`n" }
           $info | Set-Content -Path update.txt -NoNewline -Encoding ascii
-          $changes = if ($notes) { "`n`nChanges since $(if ($previous) { $previous } else { 'the last build' }):`n" + (($notes | ForEach-Object { "- $_" }) -join "`n") } else { '' }
-          # The Linux and Mac jobs add theirs to the release once it's there.
-          $downloads = "`n`nDownloads: Windows - $env:PACKAGE; Linux and Steam Deck - $env:LINUX_PACKAGE; macOS - $env:MAC_PACKAGE"
+          $changes = if ($notes) { "`n`nChanges since $(if ($previous) { $previous } else { 'the last build' }), newest first:`n" + (($notes | ForEach-Object { "- $_" }) -join "`n") } else { '' }
+          # The Linux, Mac and Decky jobs add theirs to the release once it's there.
+          $downloads = "`n`nDownloads: Windows - $env:PACKAGE; Linux and Steam Deck - $env:LINUX_PACKAGE; Steam Deck Game Mode (Decky plugin) - $env:DECKY_PACKAGE; macOS - $env:MAC_PACKAGE"
           if ($env:GITHUB_REF_NAME -eq 'master') {
             gh release create $tag $env:PACKAGE update.txt --target $env:GITHUB_SHA --latest `
               --title "RemotePlayWhatever build $env:GITHUB_RUN_NUMBER ($short)" `
