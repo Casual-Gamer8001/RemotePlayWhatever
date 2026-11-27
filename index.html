@@ -46,7 +46,9 @@
     { "@type": "Question", "name": "Do my friends need to own the game?",
       "acceptedAnswer": { "@type": "Answer", "text": "No. With Remote Play Together only the host needs the game. Steam friends join from Steam, and anyone with a guest link joins with the free Steam Link app, even without a Steam account." } },
     { "@type": "Question", "name": "Does it work on the Steam Deck?",
-      "acceptedAnswer": { "@type": "Answer", "text": "Yes, use the Linux AppImage in Desktop Mode and start your game from Steam in Desktop Mode too." } },
+      "acceptedAnswer": { "@type": "Answer", "text": "Yes. Use the Linux AppImage in Desktop Mode, or the Decky plugin in Game Mode (new, not yet tested on a real Steam Deck). Don't add the AppImage to Steam to start it in Game Mode: closing it there can freeze Steam." } },
+    { "@type": "Question", "name": "Can I share a Game Pass or Xbox app game?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Yes. Click Share my screen, wait for Ready to share your screen, then start the game the usual way. Guests see your whole screen, but Steam doesn't send them its sound." } },
     { "@type": "Question", "name": "Windows says the publisher is unknown. Is it safe?",
       "acceptedAnswer": { "@type": "Answer", "text": "The app isn't code-signed, so Windows SmartScreen warns about it: click More info, then Run anyway. It's open source under the MIT License, and every download is built by GitHub Actions from the public source code." } }
   ]
@@ -85,7 +87,7 @@
   .small { font-size: 14px; color: var(--muted); }
   section { padding: 30px 0; }
   h2 { font-size: 28px; margin: 0 0 16px; }
-  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
   .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 8px; }
   .card h3 { margin: 0; font-size: 19px; }
   .card .btn { text-align: center; margin-top: auto; }
@@ -126,7 +128,7 @@
     <div>
       <h1>Remote Play Whatever</h1>
       <p class="tagline">Steam Remote Play Together for any game</p>
-      <p class="lead">It starts Remote Play Together for games that don't support it, and for non-Steam games such as emulators. Invite Steam friends, or send a link that anyone can join, even without a Steam account.</p>
+      <p class="lead">It starts Remote Play Together for games that don't support it, for non-Steam games such as emulators, and with Share my screen even for games Steam can't start, like Game Pass games. Invite Steam friends, or send a link that anyone can join, even without a Steam account.</p>
       <p class="status"><b>Works with the current Steam client.</b> The original RemotePlayWhatever (version 0.2.14) is broken with current Steam and hasn't been updated since April 2026. This maintained version includes the community fix and keeps getting updates.</p>
       <a class="btn" href="#download">Download RemotePlayWhatever</a>
       <p class="small" id="latest">Free and open source (MIT License) · Windows, Steam Deck / Linux and macOS</p>
@@ -144,9 +146,9 @@
         <a class="btn" href="https://github.com/Casual-Gamer8001/RemotePlayWhatever/releases/latest/download/RemotePlayWhatever-win64.zip">Download for Windows</a>
       </div>
       <div class="card">
-        <h3>Steam Deck and Linux <span class="tag">New</span></h3>
+        <h3>Steam Deck and Linux</h3>
         <div class="small" data-size-for="RemotePlayWhatever-linux-x86_64.AppImage">64-bit, glibc 2.35 or newer</div>
-        <div>One AppImage file. Mark it executable and run it while Steam is running. On the Steam Deck, use it in Desktop Mode.</div>
+        <div>One AppImage file. Mark it executable and run it while Steam is running. On the Steam Deck, use it in Desktop Mode, or in Game Mode with the plugin below.</div>
         <a class="btn" href="https://github.com/Casual-Gamer8001/RemotePlayWhatever/releases/latest/download/RemotePlayWhatever-linux-x86_64.AppImage">Download for Linux</a>
       </div>
       <div class="card">
@@ -154,6 +156,12 @@
         <div class="small" data-size-for="RemotePlayWhatever-macos.zip">macOS 11 or later, Intel or Apple Silicon</div>
         <div>Move the app to Applications. It isn't signed by Apple, so allow it once under Privacy &amp; Security. Not yet tested on a real Mac.</div>
         <a class="btn" href="https://github.com/Casual-Gamer8001/RemotePlayWhatever/releases/latest/download/RemotePlayWhatever-macos.zip">Download for macOS</a>
+      </div>
+      <div class="card">
+        <h3>Steam Deck Game Mode <span class="tag">New</span></h3>
+        <div class="small" data-size-for="RemotePlayWhatever-decky.zip">Decky Loader plugin · not yet tested on a real Steam Deck</div>
+        <div>Invite friends, create guest links with a QR code, and manage guests from the Quick Access Menu, without leaving Game Mode. Install <a href="https://decky.xyz">Decky Loader</a>, turn on its developer mode, and use <b>Install Plugin from URL</b> with the link below.</div>
+        <a class="btn" href="https://github.com/Casual-Gamer8001/RemotePlayWhatever/releases/latest/download/RemotePlayWhatever-decky.zip">Download the Decky plugin</a>
       </div>
     </div>
     <p class="small">Older builds and release notes are on the <a href="https://github.com/Casual-Gamer8001/RemotePlayWhatever/releases">releases page</a>. Step-by-step install notes for each system are in the <a href="https://github.com/Casual-Gamer8001/RemotePlayWhatever#download">README</a>.</p>
@@ -163,9 +171,9 @@
     <h2>How to use</h2>
     <ol class="steps">
       <li>Start Steam and sign in, then open Remote Play Whatever.</li>
-      <li>Start your game <b>through Steam</b>: from your library, or with <b>Play</b> next to it under <i>Recent games</i>. Add a non-Steam game, such as an emulator, to Steam first (<b>Games &gt; Add a Non-Steam Game to My Library</b>).</li>
-      <li>Click <b>Invite</b> next to a friend, or <b>Create guest link</b> and send the link to anyone. They join with Steam, or with the free Steam Link app on a phone, tablet, computer or TV. A <b>QR code</b> is there for someone in the room.</li>
-      <li>Choose who can use the keyboard, mouse or a controller in the guest controls window, and click <b>End session</b> when you're done.</li>
+      <li>Start your game <b>through Steam</b>: from your library, or with <b>Play</b> next to it under <i>Recent games</i>. Add a non-Steam game, such as an emulator, to Steam first (<b>Games &gt; Add a Non-Steam Game to My Library</b>). For a game Steam can't start, such as one from the Xbox app, click <b>Share my screen</b>, then start the game the usual way.</li>
+      <li>Click <b>Invite</b> next to a friend, or <b>Create guest link</b> and send the link to anyone. Friends get the invite in their Steam chat. Anyone with a link joins with Steam, or with the free Steam Link app on a phone, tablet, computer or TV. A <b>QR code</b> is there for someone in the room.</li>
+      <li>In the guest controls window, choose who can use the keyboard, mouse or a controller, and which player each controller is. Click <b>End session</b> when you're done.</li>
     </ol>
   </section>
 
@@ -173,8 +181,11 @@
     <h2>What it does</h2>
     <ul class="features">
       <li><b>Any game</b>Steam games without Remote Play Together, and non-Steam games you've added to Steam. Only the host needs the game.</li>
+      <li><b>Share my screen</b>For games Steam can't start, such as Xbox app and Game Pass games. Guests see your whole screen, but don't hear it.</li>
       <li><b>Guest links for anyone</b>A link (or QR code) that someone without a Steam account can join with the free Steam Link app. One person per link.</li>
       <li><b>Guest controls</b>Keyboard, mouse and controller switches for every guest, a Remove button, and in-game shortcuts on Windows.</li>
+      <li><b>Controller order</b>See which player each controller is, yours and your guests', and move them, the way Steam's own panel does. On Windows.</li>
+      <li><b>Steam Deck Game Mode</b>A Decky plugin puts invites, guest links and guest controls in the Quick Access Menu.</li>
       <li><b>Survives Steam updates</b>Steam's internal functions are found by name, so most Steam updates don't break it. If one ever does, the app says so, and on Windows it offers the fix.</li>
       <li><b>Updates itself on Windows</b>Updates are checked before they're installed, and a version that doesn't start properly is rolled back.</li>
       <li><b>Easy to use</b>Your recent games with a Play button, pinned friends, what friends are playing, and light or dark mode.</li>
@@ -197,7 +208,11 @@
     </details>
     <details>
       <summary>Does it work on the Steam Deck?</summary>
-      <p>Yes, use the Linux AppImage in Desktop Mode and start your game from Steam in Desktop Mode too.</p>
+      <p>Yes. Use the Linux AppImage in Desktop Mode, or the Decky plugin in Game Mode (new, not yet tested on a real Steam Deck). Don't add the AppImage to Steam to start it in Game Mode: closing it there can freeze Steam.</p>
+    </details>
+    <details>
+      <summary>Can I share a Game Pass or Xbox app game?</summary>
+      <p>Yes. Click <b>Share my screen</b>, wait for <i>Ready to share your screen</i>, then start the game the usual way. Guests see your whole screen, but Steam doesn't send them its sound.</p>
     </details>
     <details>
       <summary>Windows says the publisher is unknown. Is it safe?</summary>
@@ -221,7 +236,7 @@
       el.textContent = 'Latest: ' + rel.tag_name.replace('build-', 'build ') + (date ? ', ' + date : '') + ' · Free and open source (MIT License)';
       (rel.assets || []).forEach(function (a) {
         var line = document.querySelector('[data-size-for="' + a.name + '"]');
-        if (line) line.textContent += ' · ' + (a.size / 1048576).toFixed(1) + ' MB';
+        if (line) line.textContent += ' · ' + (a.size < 1048576 ? Math.max(1, Math.round(a.size / 1024)) + ' KB' : (a.size / 1048576).toFixed(1) + ' MB');
       });
     })
     .catch(function () {});
