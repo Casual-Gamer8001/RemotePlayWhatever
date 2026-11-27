@@ -343,7 +343,12 @@ namespace
 
     void ServeSession::OnInviteResult(RemotePlayInviteResult_t* cb)
     {
-        const uint64 steamID = cb->m_player.m_playerID.GetAccountID() != 0 ? cb->m_player.m_playerID.ConvertToUint64() : 0;
+        uint64 steamID = cb->m_player.m_playerID.GetAccountID() != 0 ? cb->m_player.m_playerID.ConvertToUint64() : 0;
+        // A friend's invite for a game Steam doesn't run is a guest link sent to them.
+        if (!steamID)
+        {
+            steamID = m_handler->ResultLinkFriend(cb);
+        }
         std::string line = "{\"event\":\"invite\",\"steamid\":" + Id(steamID) + ",\"guest\":" +
                            std::to_string((unsigned)cb->m_player.m_unGuestID);
         if (cb->m_eResult == k_ERemoteClientLaunchResultOK)

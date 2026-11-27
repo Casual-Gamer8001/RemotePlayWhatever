@@ -1607,12 +1607,13 @@ bool FriendsListFrame::RefreshWaitingInvites()
             });
             line->Add(qr, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(6));
         }
-        // A friend's invite is Steam's own, in their chat; its link can be sent
+        // A friend's invite is Steam's own in their chat (or, for a game Steam
+        // doesn't run, a link the app sent there); its link can be sent
         // another way in case that doesn't arrive.
         if (id && !m_pRemoteInvite->FriendLink(id).empty())
         {
             FlatButton* copy = new FlatButton(row, "Copy link", FlatButton::Link, 0, true);
-            copy->SetToolTip("Copy a link to this invite, to send it another way in case Steam's invite doesn't reach them.");
+            copy->SetToolTip("Copy a link to this invite, to send it another way in case the invite doesn't reach them.");
             copy->Bind(wxEVT_BUTTON, [this, id](wxCommandEvent&)
             {
                 CopyFriendLink(id);
@@ -1660,7 +1661,7 @@ void FriendsListFrame::CopyFriendLink(uint64 steamID)
     {
         const char* persona = GClientContext()->SteamFriends()->GetFriendPersonaName(CSteamID(steamID));
         const wxString name = wxString::FromUTF8(persona && *persona ? persona : "your friend");
-        ShowNotice("Link copied. Send it to " + name + " another way if Steam's invite doesn't reach them.");
+        ShowNotice("Link copied. Send it to " + name + " another way if the invite doesn't reach them.");
     }
 }
 
@@ -2209,9 +2210,12 @@ void FriendsListFrame::ApplyFilter()
 void FriendsListFrame::OnRemotePlayInviteResult(RemotePlayInviteResult_t* inviteResultCb)
 {
     const bool forFriend = inviteResultCb->m_player.m_playerID.IsValid();
+    // A guest link for a friend (a game Steam doesn't run), which the invite
+    // handler sends them in Steam chat: their invite, not a link to copy.
+    const uint64 linkFriend = forFriend ? 0 : m_pRemoteInvite->ResultLinkFriend(inviteResultCb);
     // A guest link asked for with Ctrl+Alt+L: answer with a tray notification,
     // not a message box that would pull the host out of the game.
-    const bool viaHotKey = HotKeyLinkPending() && !forFriend;
+    const bool viaHotKey = HotKeyLinkPending() && !forFriend && !linkFriend;
     if (viaHotKey)
     {
         m_hotKeyLinkSince = 0;
@@ -2219,6 +2223,10 @@ void FriendsListFrame::OnRemotePlayInviteResult(RemotePlayInviteResult_t* invite
     if (forFriend)
     {
         m_sending.erase(inviteResultCb->m_player.m_playerID.ConvertToUint64());
+    }
+    else if (linkFriend)
+    {
+        m_sending.erase(linkFriend);
     }
     else
     {
@@ -2252,6 +2260,13 @@ void FriendsListFrame::OnRemotePlayInviteResult(RemotePlayInviteResult_t* invite
         const bool offline = panel != m_friendPanels.end() && !panel->second->IsOnline();
         ShowNotice(offline ? "Invite sent to " + name + ". They appear offline; it waits for them in Steam chat."
                            : "Invite sent to " + name + ". Steam shows it in their chat.");
+        return;
+    }
+    if (linkFriend)
+    {
+        const char* persona = GClientContext()->SteamFriends()->GetFriendPersonaName(CSteamID((uint64)linkFriend));
+        const wxString name = wxString::FromUTF8(persona && *persona ? persona : "your friend");
+        ShowNotice("Invite sent to " + name + " as a link in Steam chat: Steam's own invite only works for Steam games.");
         return;
     }
 

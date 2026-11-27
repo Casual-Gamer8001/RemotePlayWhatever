@@ -43,7 +43,7 @@ If it can't start, one line and exit code 1:
 ```
 
 ## Unsolicited events
-- `{"event":"invite","steamid":"<string>","guest":<n>,"result":"ok","url":"https://s.team/..."}`
+- `{"event":"invite","steamid":"<string>","guest":<n>,"result":"ok","url":"https://s.team/..."}` (a friend's invite for a game Steam doesn't run is a guest link the app sends them in Steam chat: its `steamid` is the friend's, with a non-zero `guest`)
 - `{"event":"invite","steamid":"<string>","guest":<n>,"result":"failed","code":<ERemoteClientLaunchResult>,"message":"<why>"}`
 - `{"event":"joined","key":"...","steamid":"...","name":"..."}` / `{"event":"left","key":"...","steamid":"...","name":"..."}`
 - `{"event":"notice","message":"..."}` (e.g. "The game closed, so the session ended.")

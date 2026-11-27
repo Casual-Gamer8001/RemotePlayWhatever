@@ -438,7 +438,7 @@ wxString ControlFrame::GuestName(const ConnectedGuest& g, bool& placeholder)
         return wxString::Format("Steam Link guest %u", g.player.m_unGuestID);
     }
 
-    const char* persona = GClientContext()->SteamFriends()->GetFriendPersonaName(g.player.m_playerID);
+    const char* persona = GClientContext()->SteamFriends()->GetFriendPersonaName(CSteamID((uint64)g.steamID));
     wxString name = wxString::FromUTF8(persona ? persona : "");
     if (name.IsEmpty() || name == "[unknown]")
     {
@@ -466,7 +466,7 @@ void ControlFrame::RefreshRows()
         if (name != row.shownName || !row.hasPicture)
         {
             // Link guests' names and pictures arrive a little after they join.
-            const wxImage picture = g.steamID ? SteamAvatarImage(g.player.m_playerID) : wxImage();
+            const wxImage picture = g.steamID ? SteamAvatarImage(CSteamID((uint64)g.steamID)) : wxImage();
             if (name != row.shownName || picture.IsOk())
             {
                 row.shownName = name;

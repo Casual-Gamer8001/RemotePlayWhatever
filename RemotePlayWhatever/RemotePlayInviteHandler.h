@@ -115,8 +115,18 @@ public:
     std::string GuestLinkFor(uint32 guestID) const;
     // The link Steam made for a friend's invite (its own invite card in their
     // chat is what they normally use), for sending it another way if that
-    // doesn't arrive. Empty once they've joined or the invite is gone.
+    // doesn't arrive; for a game Steam doesn't run, the guest link sent to
+    // them in Steam chat. Empty once they've joined or the invite is gone.
     std::string FriendLink(uint64 steamID) const;
+    // The friend a guest link was sent to in Steam chat (a friend's invite for
+    // a game Steam doesn't run), or 0 for an ordinary guest link.
+    uint64 LinkInviteFriend(uint32 guestID) const;
+    // Whose invite this answer from Steam is, for a guest link sent to a
+    // friend (0 otherwise). This handler hears Steam's answer before the
+    // window, --serve and the command line do, and may forget the link right
+    // away (a failed invite can end the session), so it remembers whose the
+    // answer it last heard was.
+    uint64 ResultLinkFriend(const RemotePlayInviteResult_t* result) const;
 
     // Invites sent this session that nobody has used yet (a friend who
     // hasn't joined, or a guest link nobody has opened).
@@ -176,7 +186,9 @@ private:
     // Async group creation. Stock RPW hardcodes groupID=1 without ever creating
     // a group; we create/settle one first, then fire the queued invite(s).
     enum EGroupState { GroupNone, GroupWaiting, GroupReady, GroupFailed };
-    struct PendingInvite { CSteamID invitee; AppId_t appID; };
+    // A friend's invite for a game Steam doesn't run goes out as a guest link
+    // (asLink): Steam's own invite fails there.
+    struct PendingInvite { CSteamID invitee; AppId_t appID; bool asLink; };
 
     // The group Steam keeps for this host and the session's game, or 0 if
     // there's none yet.
@@ -214,6 +226,19 @@ private:
     std::set<uint32> m_takenLinks;
     // The link Steam made for each friend's invite, by SteamID.
     std::map<uint64, std::string> m_friendLinks;
+    // Guest links sent to a friend in Steam chat, by guest slot: the friend.
+    // Kept until the slot is reused or the session ends, so it can still be
+    // looked up when Steam answers.
+    std::map<uint32, uint64> m_linkFriends;
+    // Steam's last invite answer (slot, group, result) and the friend whose
+    // guest link it was for, if any; see ResultLinkFriend. Never reset with
+    // the session.
+    uint32 m_resultSlot;
+    uint32 m_resultGroup;
+    int m_resultCode;
+    uint64 m_resultFriend;
+    // Sends a friend their guest link in Steam chat (and keeps it for Copy link).
+    void SendLinkToFriend(uint64 friendID, const std::string& link);
 
     std::vector<ConnectedGuest> m_guests;
     uint32 m_rosterRevision;

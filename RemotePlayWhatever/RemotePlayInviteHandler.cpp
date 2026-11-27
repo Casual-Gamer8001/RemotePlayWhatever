@@ -48,6 +48,10 @@ RemotePlayInviteHandler::RemotePlayInviteHandler() :
     m_rosterRevision(0),
     m_sessionEnds(0),
     m_lastGuestSync(0),
+    m_resultSlot(0),
+    m_resultGroup(0),
+    m_resultCode(0),
+    m_resultFriend(0),
     m_remoteStartCb(this, &RemotePlayInviteHandler::OnRemotePlayStart),
     m_remoteStopCb(this, &RemotePlayInviteHandler::OnRemotePlayStop),
     m_remoteInviteResultCb(this, &RemotePlayInviteHandler::OnRemotePlayInviteResult),
@@ -164,6 +168,7 @@ void RemotePlayInviteHandler::SendInvite(CSteamID invitee)
     PendingInvite pi;
     pi.invitee = invitee;
     pi.appID = appID;
+    pi.asLink = desktop && invitee.GetAccountID() != 0;
     m_pending.push_back(pi);
 
     if (m_groupState == GroupNone)
@@ -301,10 +306,15 @@ void RemotePlayInviteHandler::GroupTick()
             // guest links a guest id. With a guest id, Steam treats a friend's
             // invite as a guest link too: it only hands back a URL (no invite
             // card in their chat) and they join as "Guest N", outside the
-            // overlay's player list.
+            // overlay's player list. Steam's own invite only works for a Steam
+            // game, though: for one it doesn't run (a non-Steam game, Share my
+            // screen) it starts the friend's stream, stops it at once and
+            // answers "failed". There the friend gets a guest link, made like
+            // any other, which is sent to them in Steam chat once Steam has it.
             const bool isFriend = m_pending[i].invitee.GetAccountID() != 0;
+            const bool asLink = isFriend && m_pending[i].asLink;
             uint32 guest = 0;
-            if (!isFriend)
+            if (!isFriend || asLink)
             {
                 guest = rcm->GetAvailableRemotePlayTogetherGuestID(m_groupID);
                 if (!guest)
@@ -314,12 +324,18 @@ void RemotePlayInviteHandler::GroupTick()
                 m_remoteGuestID = guest + 1;
             }
 
-            RemotePlayPlayer_t rppInvitee = { m_pending[i].invitee, guest, m_groupID, 0, 0, 0 };
+            const CSteamID invitee = asLink ? GuestLinkInvitee() : m_pending[i].invitee;
+            RemotePlayPlayer_t rppInvitee = { invitee, guest, m_groupID, 0, 0, 0 };
             bool sent = rcm->BCreateRemotePlayInviteAndSession(rppInvitee, m_pending[i].appID);
             clientvt::Log("[rp] invite %s: friend=%d steam=%llu guest=%u group=%u app=%u\n",
                           sent ? "sent" : "refused by Steam", (int)isFriend,
                           (unsigned long long)rppInvitee.m_playerID.ConvertToUint64(), guest, m_groupID,
                           (unsigned)m_pending[i].appID);
+            if (asLink)
+            {
+                clientvt::Log("[rp]   (a guest link for friend %llu, to send in Steam chat: not a Steam game)\n",
+                              (unsigned long long)m_pending[i].invitee.ConvertToUint64());
+            }
             if (sent)
             {
                 // Steam hands a guest slot out again once the guest who came in
@@ -337,6 +353,11 @@ void RemotePlayInviteHandler::GroupTick()
                 {
                     m_takenLinks.erase(guest);
                     m_linkURLs.erase(guest);
+                    m_linkFriends.erase(guest);
+                }
+                if (asLink)
+                {
+                    m_linkFriends[guest] = m_pending[i].invitee.ConvertToUint64();
                 }
                 m_invited.push_back(rppInvitee);
                 ++m_rosterRevision;
@@ -420,6 +441,7 @@ void RemotePlayInviteHandler::ResetSession()
     m_linkURLs.clear();
     m_takenLinks.clear();
     m_friendLinks.clear();
+    m_linkFriends.clear();
     m_sessionPlayers.clear();
     m_lastGuestSync = 0;
     ++m_rosterRevision;
@@ -459,7 +481,11 @@ void RemotePlayInviteHandler::RemoveGuest(uint64 key)
                 rcm->CancelRemotePlayInviteAndSession(sent);
                 m_linkURLs.erase(sent.m_unGuestID);
                 m_takenLinks.erase(sent.m_unGuestID);
-                if (!theirLink)
+                if (theirLink)
+                {
+                    m_linkFriends.erase(sent.m_unGuestID);
+                }
+                if (g.steamID)
                 {
                     m_friendLinks.erase(g.steamID);
                 }
@@ -480,11 +506,13 @@ std::vector<RemotePlayInviteHandler::WaitingInvite> RemotePlayInviteHandler::Wai
     for (size_t i = 0; i < m_invited.size(); ++i)
     {
         const RemotePlayPlayer_t& sent = m_invited[i];
-        const uint64 friendID = sent.m_playerID.GetAccountID() != 0 ? sent.m_playerID.ConvertToUint64() : 0;
+        const bool isLink = sent.m_playerID.GetAccountID() == 0;
+        // A guest link sent to a friend in Steam chat waits for that friend.
+        const uint64 friendID = isLink ? LinkInviteFriend(sent.m_unGuestID) : sent.m_playerID.ConvertToUint64();
         // A guest takes the slot their invite reserved; a friend can also be
         // recognised by their SteamID. A guest link someone has come in with
         // stays used after they leave.
-        bool used = !friendID && m_takenLinks.count(sent.m_unGuestID) != 0;
+        bool used = isLink && m_takenLinks.count(sent.m_unGuestID) != 0;
         for (size_t g = 0; g < m_guests.size() && !used; ++g)
         {
             // Friends are invited with guest id 0, so only a guest link's slot
@@ -552,13 +580,56 @@ std::string RemotePlayInviteHandler::FriendLink(uint64 steamID) const
     return std::string();
 }
 
+uint64 RemotePlayInviteHandler::LinkInviteFriend(uint32 guestID) const
+{
+    std::map<uint32, uint64>::const_iterator f = guestID ? m_linkFriends.find(guestID) : m_linkFriends.end();
+    return f != m_linkFriends.end() ? f->second : 0;
+}
+
+uint64 RemotePlayInviteHandler::ResultLinkFriend(const RemotePlayInviteResult_t* result) const
+{
+    if (result->m_player.m_playerID.GetAccountID() != 0)
+    {
+        return 0;       // Steam's own invite to a friend
+    }
+    if (result->m_player.m_unGuestID == m_resultSlot && result->m_player.m_unOverlayPIDGroupID == m_resultGroup &&
+        (int)result->m_eResult == m_resultCode)
+    {
+        return m_resultFriend;
+    }
+    return LinkInviteFriend(result->m_player.m_unGuestID);
+}
+
+void RemotePlayInviteHandler::SendLinkToFriend(uint64 friendID, const std::string& link)
+{
+    if (link.empty())
+    {
+        return;
+    }
+    m_friendLinks[friendID] = link;
+    ++m_rosterRevision;
+    const CSteamID who((uint64)friendID);
+    const std::string msg = "Join my game with Steam Remote Play: " + link;
+    const bool sent = GClientContext()->SteamFriends()->ReplyToFriendMessage(who, msg.c_str());
+    clientvt::Log("[rp] guest link for friend %llu sent in Steam chat: %s\n", (unsigned long long)friendID,
+                  sent ? "yes" : "NO");
+    if (!sent)
+    {
+        const char* persona = GClientContext()->SteamFriends()->GetFriendPersonaName(who);
+        const std::string name = persona && *persona ? persona : "your friend";
+        m_notice = "Steam didn't send the link to " + name + "'s chat. Use Copy link next to \"Waiting for " + name +
+                   "\" and send it another way.";
+    }
+}
+
 void RemotePlayInviteHandler::CancelWaitingInvite(uint64 steamID, uint32 guestID)
 {
     for (size_t i = 0; i < m_invited.size(); ++i)
     {
         const RemotePlayPlayer_t sent = m_invited[i];
         const bool link = sent.m_playerID.GetAccountID() == 0;
-        if ((link ? 0 : sent.m_playerID.ConvertToUint64()) != steamID || sent.m_unGuestID != guestID)
+        const uint64 who = link ? LinkInviteFriend(sent.m_unGuestID) : sent.m_playerID.ConvertToUint64();
+        if (who != steamID || sent.m_unGuestID != guestID)
         {
             continue;
         }
@@ -567,13 +638,17 @@ void RemotePlayInviteHandler::CancelWaitingInvite(uint64 steamID, uint32 guestID
         m_invited.erase(m_invited.begin() + i);
         m_linkURLs.erase(sent.m_unGuestID);
         m_takenLinks.erase(sent.m_unGuestID);
-        if (!link)
+        if (link)
         {
-            m_friendLinks.erase(steamID);
+            m_linkFriends.erase(sent.m_unGuestID);
+        }
+        if (who)
+        {
+            m_friendLinks.erase(who);
         }
         ++m_rosterRevision;
 
-        std::string notice = link ? "Guest link cancelled." : "Invite cancelled.";
+        std::string notice = who ? "Invite cancelled." : "Guest link cancelled.";
         // Nothing left to share, so don't keep the screen shared for nobody.
         if (m_guests.empty() && m_invited.empty() && m_pending.empty())
         {
@@ -972,6 +1047,12 @@ void RemotePlayInviteHandler::AddGuest(const RemotePlayPlayer_t& player, uint32 
     g.player = player;
     g.key = key;
     g.steamID = player.m_playerID.GetAccountID() != 0 ? player.m_playerID.ConvertToUint64() : 0;
+    // Whoever comes in with a guest link sent to a friend in Steam chat is
+    // taken to be that friend: their name, their remembered controls.
+    if (!g.steamID)
+    {
+        g.steamID = LinkInviteFriend(player.m_unGuestID);
+    }
     g.sessionID = sessionID;
     g.missingChecks = 0;
     g.wantKbd = true;
@@ -1003,7 +1084,7 @@ void RemotePlayInviteHandler::AddGuest(const RemotePlayPlayer_t& player, uint32 
     {
         // Someone who joined through a guest link may not be a friend, so ask
         // Steam for their name for the control window.
-        GClientContext()->SteamFriends()->RequestUserInformation(player.m_playerID, true);
+        GClientContext()->SteamFriends()->RequestUserInformation(CSteamID((uint64)g.steamID), true);
     }
     ApplyGuest(g);
 }
@@ -1041,6 +1122,13 @@ void RemotePlayInviteHandler::OnRemotePlayInviteResult(RemotePlayInviteResult_t*
                   (unsigned long long)inviteResultCb->m_player.m_playerID.ConvertToUint64(),
                   inviteResultCb->m_player.m_unGuestID, inviteResultCb->m_player.m_unOverlayPIDGroupID,
                   inviteResultCb->m_szConnectURL);
+
+    // Whose answer this is, for the window, --serve and the command line, which
+    // hear it after this handler (see ResultLinkFriend). Refined below.
+    m_resultSlot = inviteResultCb->m_player.m_unGuestID;
+    m_resultGroup = inviteResultCb->m_player.m_unOverlayPIDGroupID;
+    m_resultCode = (int)inviteResultCb->m_eResult;
+    m_resultFriend = inviteResultCb->m_player.m_playerID.GetAccountID() == 0 ? LinkInviteFriend(m_resultSlot) : 0;
 
     if (inviteResultCb->m_eResult == k_ERemoteClientLaunchResultOK)
     {
@@ -1087,6 +1175,13 @@ void RemotePlayInviteHandler::OnRemotePlayInviteResult(RemotePlayInviteResult_t*
             {
                 m_linkURLs[slot] = ClickableURL(inviteResultCb->m_szConnectURL);
                 ++m_rosterRevision;
+                // A friend's invite for a game Steam doesn't run: send them the link.
+                const uint64 friendID = LinkInviteFriend(slot);
+                if (friendID)
+                {
+                    m_resultFriend = friendID;
+                    SendLinkToFriend(friendID, m_linkURLs[slot]);
+                }
             }
         }
         ShowSteamPanel(GClientContext()->RemoteClientManager(), GetRunningGameID().AppID());
@@ -1107,6 +1202,11 @@ void RemotePlayInviteHandler::OnRemotePlayInviteResult(RemotePlayInviteResult_t*
                 if (friendInvite)
                 {
                     m_friendLinks.erase(sent.m_playerID.ConvertToUint64());
+                }
+                else if (LinkInviteFriend(sent.m_unGuestID))
+                {
+                    m_resultFriend = LinkInviteFriend(sent.m_unGuestID);
+                    m_friendLinks.erase(m_resultFriend);
                 }
                 m_invited.erase(m_invited.begin() + i);
                 ++m_rosterRevision;

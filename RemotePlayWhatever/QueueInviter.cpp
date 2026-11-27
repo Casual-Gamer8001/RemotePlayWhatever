@@ -30,8 +30,11 @@ bool QueueInviter::Running()
 
 void QueueInviter::OnRemotePlayInviteResult(RemotePlayInviteResult_t* inviteResultCb)
 {
+    // A friend's invite for a game Steam doesn't run goes out as a guest link
+    // (sent to them in Steam chat), so Steam's answer names the link, not them.
     if( m_inviteQueue->empty() ||
-        inviteResultCb->m_player.m_playerID != m_inviteQueue->front()
+        (inviteResultCb->m_player.m_playerID.ConvertToUint64() != m_inviteQueue->front() &&
+         m_handler->ResultLinkFriend(inviteResultCb) != m_inviteQueue->front())
     )
     {
         return;
