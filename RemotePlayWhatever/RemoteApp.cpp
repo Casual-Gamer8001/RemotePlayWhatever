@@ -13,6 +13,7 @@
 #include "ControlFrame.h"
 #include "TrayIcon.h"
 #include "ScreenShare.h"
+#include "ProgramLauncher.h"
 #ifdef __WXMSW__
 #include <cwchar>
 #include <wx/msw/wrapwin.h>
@@ -318,10 +319,12 @@ int RemoteApp::OnExit()
     }
 
     // A screen share's placeholder quits with this copy anyway; its temporary
-    // shortcut goes too.
+    // shortcut goes too. A program started with Play a program keeps its
+    // shortcut while it runs (Steam forgets it when it restarts).
     if (!m_oneshot)
     {
         ScreenShare::Stop(true);
+        ProgramLauncher::Shutdown();
     }
 
     if(m_inviteHandler)

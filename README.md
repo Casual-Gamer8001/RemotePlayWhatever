@@ -1,6 +1,6 @@
 # Remote Play Whatever
 
-Start Steam **Remote Play Together** with any game: Steam games that don't support it, and non-Steam games such as emulators that you've added to Steam. Invite Steam friends, or send a **guest link** that anyone can use, even without a Steam account.
+Start Steam **Remote Play Together** with any game: Steam games that don't support it, and non-Steam games such as emulators, whether you've added them to Steam or not. Invite Steam friends, or send a **guest link** that anyone can use, even without a Steam account.
 
 This is Casual-Gamer8001's fork of [m4dEngi's RemotePlayWhatever](https://github.com/m4dEngi/RemotePlayWhatever). It works with current Steam clients, and it adds a redesigned window, guest controls, QR codes for guest links, **Share my screen** for games Steam can't start, automatic updates on Windows, a Linux and macOS version, and a Steam Deck Game Mode plugin. See [What this fork adds](#what-this-fork-adds).
 
@@ -55,7 +55,7 @@ The macOS version is new and hasn't been tested with a real Mac yet. Please [ope
 ## How to use
 1. Start Steam and sign in.
 2. Open Remote Play Whatever.
-3. Start your game **through Steam**: from your Steam library, or with **Play** next to it under *Recent games* in Remote Play Whatever. A non-Steam game, such as an emulator, can be added to Steam (**Games > Add a Non-Steam Game to My Library**) and started from Steam. For a game Steam can't start, such as one from the Xbox app (Game Pass) or another launcher, click **Share my screen** instead, wait for *Ready to share your screen*, then start the game the usual way.
+3. Start your game **through Steam**: from your Steam library, or with **Play** next to it under *Recent games* in Remote Play Whatever. A game or emulator that isn't in your Steam library can be added to it (**Games > Add a Non-Steam Game to My Library**), or started with **Play a program that isn't in Steam** (under the recent games, or in the **Session** menu): pick its program file, and Steam starts it like a non-Steam game without adding it to your library. For a game Steam can't start, such as one from the Xbox app (Game Pass) or another launcher, click **Share my screen** instead, wait for *Ready to share your screen*, then start the game the usual way.
 4. Invite someone:
     - **Invite** next to a friend sends them Steam's own Remote Play Together invite, which shows up in their Steam chat. Steam's own invite only works for Steam games, so for a game Steam doesn't run (a non-Steam game, or **Share my screen**) the app sends them a guest link in Steam chat instead; they join with it the same way. While you wait for them, **Copy link** next to "Waiting for *name*" gives you a link to send them another way, in case the invite doesn't reach them.
     - **Create guest link** copies a link you can paste anywhere. Anyone can join with it, even without a Steam account: they open it and play through the free Steam Link app on a phone, tablet, computer or TV. Each link lets one person in, so **New guest link** makes another one.
@@ -78,6 +78,7 @@ For a Steam game, guests only ever see the game's window. For a **non-Steam game
 - Non-Steam games are shown by name, and sharing stops by itself when the game closes, so guests don't keep seeing your screen.
 - On Windows, a game Steam started but doesn't show as the one you're playing (for example one added to Steam with another tool) is found too, from Steam's own record of the game it started.
 - **Share my screen** for games Steam can't start, such as Xbox app and Game Pass games or games from other launchers: Steam runs a small stand-in (a temporary non-Steam game that Steam forgets when it restarts) while you play, so Remote Play Together can share your whole screen. Guests don't hear it, because Steam only sends the sound of a game it started.
+- **Play a program that isn't in Steam**: pick a game's or emulator's program file (with launch options, if it needs any), and Steam starts it like a non-Steam game, so guests hear it and see only its window while it's in front, without adding it to your library (it's a temporary non-Steam game too: removed when the program closes, or if Remote Play Whatever was closed first, when Steam restarts). The programs you played this way are listed under *Not in Steam* with a **Play** button; right-click one to change or remove it. A game that starts through another launcher (the EA app, Epic, ...) may still need **Share my screen**.
 - Guest links are clickable, can be shown as a QR code, and invites nobody has used yet are listed with a **Cancel** button each. **End session** disconnects everyone and cancels every unused invite and link.
 - On Windows, when someone joins while this window is in front (after you showed them a QR code, say), the app switches back to your Steam game, because Steam only shows guests the game while it's in front. With another program in front, the message that they joined says to click your game.
 - Steam's own Remote Play Together panel isn't opened in your game (the original app opened it with every invite): while it's open, Steam pauses your guests' input. The guest controls window does its job.
@@ -149,7 +150,7 @@ A shortcut is left out if your keyboard layout uses that key combination to type
 
 ## Troubleshooting
 - **"Steam isn't running" or "nobody is signed in"**: start Steam, sign in, then open the app again.
-- **"Start a game through Steam first"**: the game has to be started from Steam, or with **Play** in the app, so that Steam knows it's running. For a game Steam can't start, use **Share my screen**.
+- **"Start a game through Steam first"**: the game has to be started from Steam, or with **Play** in the app, so that Steam knows it's running. For a game that isn't in your Steam library, use **Play a program that isn't in Steam**; for one Steam can't start, **Share my screen**.
 - **A game from the Xbox app, Game Pass or another launcher isn't found**: Steam only knows about games it starts itself. Click **Share my screen**, wait for *Ready to share your screen*, then start the game.
 - **"Steam didn't start the screen share"**: restart Steam and try again.
 - **Your guest can only watch**: Steam didn't set up a Remote Play group for the game. Quit the game, start it again through Steam, and send a new invite.
@@ -159,7 +160,7 @@ A shortcut is left out if your keyboard layout uses that key combination to type
 - **Your guest sees "Host is busy" or "Input is temporarily disabled while the host is busy"**: with a Steam game, Steam shows your guests only the game, and only while it's in front on your PC, and it pauses their input while Steam's overlay is open in the game. Click the game, and if the overlay is open, close it with Shift+Tab. (Ctrl+Alt+L copies a guest link without leaving the game.)
 - **Your guests hear no sound**:
     - Steam sends your guests the sound of the game it's sharing, recorded inside the game. With a non-Steam game, that's only while its window is in front: when you click another window, guests see your whole screen with no sound until you go back to the game.
-    - With **Share my screen**, guests hear nothing: Steam only sends the sound of a game it started, and here that's the stand-in, not your game. If you can add the game to Steam (**Games > Add a Non-Steam Game to My Library**) and start it with **Play**, Steam sends its sound.
+    - With **Share my screen**, guests hear nothing: Steam only sends the sound of a game it started, and here that's the stand-in, not your game. If the game has a program file of its own, start it with **Play a program that isn't in Steam** instead (or add it to Steam with **Games > Add a Non-Steam Game to My Library** and start it with **Play**), and Steam sends its sound.
     - Steam records the game's sound through the Steam overlay, so keep it on: in Steam's **Settings > In game**, and in the game's **Properties > General**, tick **Enable the Steam Overlay while in-game**.
     - On Windows, a game that takes **exclusive control** of the sound device bypasses Steam. Turn exclusive mode off in the game or emulator (in RetroArch: **Settings > Audio > Output > WASAPI Exclusive Mode**), or for the device: **Control Panel > Sound**, the device's **Properties > Advanced**, untick **Allow applications to take exclusive control of this device**.
     - Ask your guest to check the volume on their device and in the Steam Link app.
@@ -178,7 +179,7 @@ Remote Play Whatever has no installer, so there's little to remove:
 - **macOS**: quit the app and move **Remote Play Whatever** from Applications to the Bin. Its settings are in `~/Library/Preferences/RemotePlayWhatever Preferences`.
 
 ## How it works
-Remote Play Whatever talks to your running Steam client over Steam's own local connection and asks it to start a Remote Play Together session for the game that's running. It doesn't change any files. It uses Steam's internal, undocumented functions, the same ones the Steam client uses itself. **Share my screen** adds a temporary non-Steam game that starts Remote Play Whatever again in the background, as a stand-in that does nothing until you stop sharing; Steam forgets it when it restarts.
+Remote Play Whatever talks to your running Steam client over Steam's own local connection and asks it to start a Remote Play Together session for the game that's running. It doesn't change any files. It uses Steam's internal, undocumented functions, the same ones the Steam client uses itself. **Share my screen** adds a temporary non-Steam game that starts Remote Play Whatever again in the background, as a stand-in that does nothing until you stop sharing; Steam forgets it when it restarts. **Play a program that isn't in Steam** adds a temporary non-Steam game for the program you picked, and removes it again when the program closes (if Remote Play Whatever was closed first, Steam forgets it when it restarts).
 
 > [!WARNING]
 > - Because these internal functions aren't meant for other programs, a Steam update **can break the app** without warning. This fork looks them up by name to survive most updates, but nothing can promise that.

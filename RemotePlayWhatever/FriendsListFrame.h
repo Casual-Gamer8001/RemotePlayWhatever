@@ -7,6 +7,7 @@
 #include "FriendPanel.h"
 #include "QrCodeDialog.h"
 #include "RemotePlayInviteHandler.h"
+#include "ProgramLauncher.h"
 
 class RpwTrayIcon;
 class AppUpdater;
@@ -20,7 +21,8 @@ class WrapLabel;
 // The main window: a menu bar (File, Session, Options, Help), an update bar
 // when there's a new version, a card for the game being shared (its picture,
 // what's shared, the guest link and session buttons, invites nobody has used
-// yet, short messages; with no game running, recent games to start), then
+// yet, short messages; with no game running, recent games and programs that
+// aren't in Steam to start), then
 // the searchable friends list (pinned friends first) with an Invite button
 // per friend. When the window is wide the card and the friends list sit side
 // by side.
@@ -90,6 +92,11 @@ private:
     // that starts it through Steam; shown or hidden, rebuilt when they change.
     void RefreshRecentGames(bool show, uint32 accountID);
     void StartGame(unsigned long long gameID, const wxString& name);
+    // Play a program that isn't in Steam: ask for one and start it, start a
+    // remembered one, and its row's right-click menu (change or remove it).
+    void AddProgram();
+    void StartProgram(const ProgramLauncher::Program& program);
+    void ShowProgramMenu(const ProgramLauncher::Program& program, const wxPoint& screenPosition);
     // "<name> joined." / "<name> left.": in the session card, and by the clock
     // when this window isn't in front (Options > Notifications...).
     void UpdateGuestNotices();
@@ -153,12 +160,13 @@ private:
     Card* m_noticeCard;
     wxStaticText* m_noticeIcon;
     WrapLabel* m_noticeText;
-    // Recent games (no game running): a heading and a row per game.
+    // Recent games (no game running): a heading and a row per game, then the
+    // programs played with Play a program and the link to play another.
     wxBoxSizer* m_gamesSizer;
     wxString m_gamesShown;              // which games the rows are for ("" = hidden)
     std::map<unsigned long long, FlatButton*> m_gameButtons;
     wxLongLong m_gamesCheckedAt;
-    unsigned long long m_startingGame;  // a game just started from the list (CGameID, 0 = none)
+    unsigned long long m_startingGame;  // a game just started from the list (CGameID or a program's key, 0 = none)
     wxString m_startingName;
     wxLongLong m_startingSince;
 

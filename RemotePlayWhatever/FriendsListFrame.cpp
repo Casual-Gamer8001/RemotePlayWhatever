@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <iterator>
 #include <vector>
 #ifdef __WXMSW__
@@ -22,6 +23,8 @@
 #include "UiWidgets.h"
 #include "QrCodeDialog.h"
 #include "ScreenShare.h"
+#include "ProgramLauncher.h"
+#include "ProgramDialog.h"
 
 // Hotkey id for Ctrl+Alt+L (the control window's ids start at 0xB001).
 static const int kHotKeyGuestLink = 0xB010;
@@ -54,6 +57,9 @@ enum
     idMenuReleaseNotes,
     idMenuProjectPage,
     idMenuPinFriend,
+    idMenuPlayProgram,
+    idMenuChangeProgram,
+    idMenuRemoveProgram,
 };
 
 static CSteamID GuestLinkInvitee()
@@ -71,6 +77,14 @@ static wxImage LoadArtwork(const wxString& path)
         image.LoadFile(path);
     }
     return image;
+}
+
+// What "Don't ask again" before sharing the whole screen is saved under: the
+// game's ID, or for a program started with Play a program, its key (its
+// temporary shortcut may get another ID each time).
+static uint64 WholeScreenKey(CGameID game)
+{
+    return ProgramLauncher::IsOurs(game) ? ProgramLauncher::Key() : game.ToUint64();
 }
 
 FriendsListFrame::FriendsListFrame(RemotePlayInviteHandler* handler):
@@ -277,6 +291,7 @@ void FriendsListFrame::BuildMenuBar()
     session->Append(idMenuControls, "Show &guest controls");
     session->AppendSeparator();
     session->Append(idMenuShareScreen, "Share my &screen (for a game Steam doesn't run)");
+    session->Append(idMenuPlayProgram, "&Play a program that isn't in Steam...");
     session->AppendSeparator();
     session->Append(idMenuEndSession, "&End session");
 
@@ -339,6 +354,7 @@ void FriendsListFrame::BuildMenuBar()
     Bind(wxEVT_MENU, [this](wxCommandEvent&) { ShowGuestLinkQrCode(true); }, idMenuGuestLinkQr);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) { ShowGuestControls(); }, idMenuControls);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) { CallAfter([this]() { ToggleScreenShare(); }); }, idMenuShareScreen);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) { CallAfter([this]() { AddProgram(); }); }, idMenuPlayProgram);
     Bind(wxEVT_MENU, [this](wxCommandEvent&)
     {
         if (m_pRemoteInvite->IsSessionActive())
@@ -428,8 +444,11 @@ void FriendsListFrame::RefreshMenus()
     {
         screenItem->SetItemLabel(screen);
     }
-    bar->Enable(idMenuShareScreen, !ScreenShare::Starting() &&
+    bar->Enable(idMenuShareScreen, !ScreenShare::Starting() && !ProgramLauncher::Starting() &&
                                    (ourScreen || (!session && !GetRunningGameID().IsValid() && ScreenShare::Available())));
+    // Play a program: like Share my screen, with no game and no session.
+    bar->Enable(idMenuPlayProgram, !session && !GetRunningGameID().IsValid() && !ScreenShare::Starting() &&
+                                   !ProgramLauncher::Starting() && ProgramLauncher::Available());
     bar->Enable(idMenuHideToTray, m_tray && m_tray->IsIconInstalled());
 
     const ThemeChoice theme = LoadThemeChoice();
@@ -600,6 +619,10 @@ static wxBitmap GameThumbnail(const wxString& path, const wxString& name, unsign
 void FriendsListFrame::RefreshRecentGames(bool show, uint32 accountID)
 {
     std::vector<RecentGame> games;
+    std::vector<ProgramLauncher::Program> programs;
+    // Play a program that isn't in Steam: the programs played that way, and
+    // a link to play another.
+    const bool offerPrograms = show && ProgramLauncher::Available();
     const wxLongLong now = wxGetLocalTimeMillis();
     if (!show)
     {
@@ -614,11 +637,24 @@ void FriendsListFrame::RefreshRecentGames(bool show, uint32 accountID)
         }
         m_gamesCheckedAt = now;
         games = GetRecentGames(accountID, 5);
+        if (offerPrograms)
+        {
+            programs = ProgramLauncher::Saved();
+        }
     }
     wxString shown;
     for (size_t i = 0; i < games.size(); ++i)
     {
         shown += wxString::Format("%llu ", (unsigned long long)games[i].game.ToUint64()) + games[i].name + "\n";
+    }
+    for (size_t i = 0; i < programs.size(); ++i)
+    {
+        shown += wxString::Format("P%llu ", (unsigned long long)ProgramLauncher::KeyOf(programs[i])) +
+                 programs[i].name + "\n";
+    }
+    if (offerPrograms)
+    {
+        shown += "+\n";
     }
     if (shown == m_gamesShown)
     {
@@ -627,43 +663,90 @@ void FriendsListFrame::RefreshRecentGames(bool show, uint32 accountID)
     m_gamesShown = shown;
     m_gameButtons.clear();
     m_gamesSizer->Clear(true);
-    if (!games.empty())
+
+    auto addHeading = [this](const wxString& text)
     {
-        wxStaticText* heading = new wxStaticText(m_gameCard, wxID_ANY, "RECENT GAMES");
+        wxStaticText* heading = new wxStaticText(m_gameCard, wxID_ANY, text);
         heading->SetFont(Ui::SemiBold(GetFont()).Scaled(0.85f));
         Ui::SetColours(heading, nullptr, &Ui::kTextSecondary);
         m_gamesSizer->Add(heading, 0, wxTOP | wxBOTTOM, FromDIP(8));
-    }
+    };
+    // A row: the game's picture, its name and a Play button.
     const wxSize thumb = FromDIP(wxSize(56, 26));
-    for (size_t i = 0; i < games.size(); ++i)
+    auto addRow = [this](const wxBitmap& picture, const wxString& name, const wxString& tip,
+                         unsigned long long key, std::function<void()> play) -> Card*
     {
-        const unsigned long long id = (unsigned long long)games[i].game.ToUint64();
-        const wxString name = games[i].name;
         Card* row = new Card(m_gameCard, &Ui::kSubtle, nullptr, 6);
         wxBoxSizer* line = new wxBoxSizer(wxHORIZONTAL);
-        wxStaticBitmap* picture = new wxStaticBitmap(row, wxID_ANY,
-            GameThumbnail(GetGameThumbnailPath(games[i].game, accountID), name, id, thumb.x, thumb.y));
-        line->Add(picture, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+        line->Add(new wxStaticBitmap(row, wxID_ANY, picture), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
         wxStaticText* text = new wxStaticText(row, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize,
                                               wxST_NO_AUTORESIZE | wxST_ELLIPSIZE_END);
         text->SetLabelText(name);
         Ui::SetColours(text, nullptr, &Ui::kText);
         text->SetMinSize(wxSize(FromDIP(40), text->GetCharHeight()));
-        text->SetToolTip(name);
+        text->SetToolTip(tip);
         line->Add(text, 1, wxALIGN_CENTER_VERTICAL);
-        FlatButton* play = new FlatButton(row, "Play", FlatButton::Secondary, 0, true);
-        play->SetToolTip("Start " + name + " through Steam.");
-        play->Bind(wxEVT_BUTTON, [this, id, name](wxCommandEvent&)
+        FlatButton* button = new FlatButton(row, "Play", FlatButton::Secondary, 0, true);
+        button->SetToolTip("Start " + name + " through Steam.");
+        button->Bind(wxEVT_BUTTON, [this, play](wxCommandEvent&)
         {
             // The rows are rebuilt once the game is running, this button included.
-            CallAfter([this, id, name]() { StartGame(id, name); });
+            CallAfter(play);
         });
-        line->Add(play, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(6));
-        m_gameButtons[id] = play;
+        line->Add(button, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(6));
+        m_gameButtons[key] = button;
         row->Content()->Add(line, 0, wxEXPAND | wxALL, FromDIP(5));
         m_gamesSizer->Add(row, 0, wxEXPAND | wxBOTTOM, FromDIP(6));
         // Tab goes through the list where it is, above the link button.
         row->MoveBeforeInTabOrder(m_linkButton);
+        return row;
+    };
+
+    if (!games.empty())
+    {
+        addHeading("RECENT GAMES");
+    }
+    for (size_t i = 0; i < games.size(); ++i)
+    {
+        const unsigned long long id = (unsigned long long)games[i].game.ToUint64();
+        const wxString name = games[i].name;
+        addRow(GameThumbnail(GetGameThumbnailPath(games[i].game, accountID), name, id, thumb.x, thumb.y), name, name,
+               id, [this, id, name]() { StartGame(id, name); });
+    }
+
+    // Steam doesn't keep these programs, so they're the app's own list.
+    if (!programs.empty())
+    {
+        addHeading("NOT IN STEAM");
+    }
+    for (size_t i = 0; i < programs.size(); ++i)
+    {
+        const ProgramLauncher::Program program = programs[i];
+        const unsigned long long key = (unsigned long long)ProgramLauncher::KeyOf(program);
+        wxString tip = program.name + "\n" + program.path;
+        if (!program.options.empty())
+        {
+            tip += " " + program.options;
+        }
+        tip += "\nRight-click to change or remove it.";
+        Card* row = addRow(GameThumbnail(wxEmptyString, program.name, key, thumb.x, thumb.y), program.name, tip, key,
+                           [this, program]() { StartProgram(program); });
+        // Right-click (on the row or its button): change or remove it.
+        row->Bind(wxEVT_CONTEXT_MENU, [this, program](wxContextMenuEvent& event)
+        {
+            const wxPoint where = event.GetPosition();
+            CallAfter([this, program, where]() { ShowProgramMenu(program, where); });
+        });
+    }
+    if (offerPrograms)
+    {
+        FlatButton* add = new FlatButton(m_gameCard, "Play a program that isn't in Steam...", FlatButton::Link);
+        add->SetToolTip("For a game or emulator that isn't in your Steam library: Steam starts it like a non-Steam "
+                        "game, without adding it to your library, so guests hear it and see its window while it's "
+                        "in front.");
+        add->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { CallAfter([this]() { AddProgram(); }); });
+        m_gamesSizer->Add(add, 0, wxBOTTOM, FromDIP(2));
+        add->MoveBeforeInTabOrder(m_linkButton);
     }
     Ui::Relayout(m_gameCard);
 }
@@ -679,6 +762,93 @@ void FriendsListFrame::StartGame(unsigned long long gameID, const wxString& name
     m_startingGame = gameID;
     m_startingName = name;
     m_startingSince = wxGetLocalTimeMillis();
+    UpdateStatus();
+}
+
+void FriendsListFrame::AddProgram()
+{
+    if (!GClientContext()->SteamUser()->BLoggedOn())
+    {
+        ShowNotice("Sign in to Steam first, then try again.", NoticeWarning);
+        return;
+    }
+    if (GetRunningGameID().IsValid() || m_pRemoteInvite->IsSessionActive())
+    {
+        ShowNotice("A game is running already: invite someone to it instead.", NoticeWarning);
+        return;
+    }
+    if (!ProgramLauncher::Available())
+    {
+        ShowNotice("This Steam version doesn't let Remote Play Whatever start programs.", NoticeWarning);
+        return;
+    }
+    ProgramLauncher::Program program;
+    if (AskForProgram(this, program, false))
+    {
+        StartProgram(program);
+    }
+}
+
+void FriendsListFrame::StartProgram(const ProgramLauncher::Program& program)
+{
+    if (!GClientContext()->SteamUser()->BLoggedOn())
+    {
+        ShowNotice("Sign in to Steam first, then try again.", NoticeWarning);
+        return;
+    }
+    if (GetRunningGameID().IsValid() || m_pRemoteInvite->IsSessionActive())
+    {
+        ShowNotice("A game is running already: invite someone to it instead.", NoticeWarning);
+        return;
+    }
+    if (ScreenShare::Starting() || ProgramLauncher::Starting())
+    {
+        ShowNotice("Steam is still starting something. Try again in a moment.", NoticeWarning);
+        return;
+    }
+    std::string error;
+    if (!ProgramLauncher::Start(program, error))
+    {
+        ShowNotice(wxString::FromUTF8(error.c_str()), NoticeWarning);
+        return;
+    }
+    // First in the list from now on.
+    ProgramLauncher::Remember(program);
+    m_gamesCheckedAt = 0;
+    m_notice.clear();
+    m_startingGame = ProgramLauncher::KeyOf(program);
+    m_startingName = ProgramLauncher::Name();
+    m_startingSince = wxGetLocalTimeMillis();
+    UpdateStatus();
+}
+
+void FriendsListFrame::ShowProgramMenu(const ProgramLauncher::Program& program, const wxPoint& screenPosition)
+{
+    wxMenu menu;
+    menu.Append(idMenuChangeProgram, "&Change the name or launch options...");
+    menu.Append(idMenuRemoveProgram, "&Remove from this list");
+    // At the mouse, or (from the keyboard) wherever Windows puts it.
+    const wxPoint where = screenPosition == wxDefaultPosition ? wxDefaultPosition : ScreenToClient(screenPosition);
+    const int choice = GetPopupMenuSelectionFromUser(menu, where);
+    if (choice == idMenuChangeProgram)
+    {
+        ProgramLauncher::Program changed = program;
+        if (!AskForProgram(this, changed, true))
+        {
+            return;
+        }
+        ProgramLauncher::Replace(program, changed);
+    }
+    else if (choice == idMenuRemoveProgram)
+    {
+        ProgramLauncher::Forget(program);
+    }
+    else
+    {
+        return;
+    }
+    // The list shows the change straight away.
+    m_gamesCheckedAt = 0;
     UpdateStatus();
 }
 
@@ -1211,7 +1381,11 @@ void FriendsListFrame::UpdateStatus()
     // Share my screen: its placeholder is "the game" Steam runs (ScreenShare).
     const bool ourScreen = hasGame && ScreenShare::IsOurs(game);
     const bool screenStarting = signedIn && !hasGame && ScreenShare::Starting();
-    wxString name = ourScreen ? wxString("Your screen") : hasGame ? GetGameName(game, account) : wxString();
+    // A program started with Play a program: Steam has no name for it.
+    const bool programStarting = signedIn && !hasGame && ProgramLauncher::Starting();
+    wxString name = ourScreen ? wxString("Your screen") :
+                    hasGame && ProgramLauncher::IsOurs(game) ? ProgramLauncher::Name() :
+                    hasGame ? GetGameName(game, account) : wxString();
     const wxString gameInText = ourScreen ? wxString("your screen") :
                                 name.empty() ? wxString(nonSteam ? "a non-Steam game" : "your game") : name;
     if (name.empty())
@@ -1415,7 +1589,7 @@ void FriendsListFrame::UpdateStatus()
     }
     m_screenButton->Show(showScreen);
     m_screenButton->SetLabel(screenLabel);
-    m_screenButton->Enable(!screenStarting);
+    m_screenButton->Enable(!screenStarting && !programStarting);
     const wxString screenTip = ourScreen ? wxString("Stop sharing your screen (Steam stops the placeholder game).") :
         wxString("For a game Steam doesn't run (from the Xbox app, Epic, ...): Steam starts a placeholder game so "
                  "Remote Play can share your whole screen. Start your game yourself afterwards. Guests won't hear "
@@ -1427,8 +1601,9 @@ void FriendsListFrame::UpdateStatus()
     // Menu items are greyed or not as the session goes (a menu item's
     // shortcut, or a command for it, does nothing while it's greyed), not
     // only when a menu is opened.
-    const wxString menuState = wxString::Format("%d%d%d%d%d%d", session, hasLink, creating,
-                                                m_tray && m_tray->IsIconInstalled(), ourScreen, screenStarting);
+    const wxString menuState = wxString::Format("%d%d%d%d%d%d%d", session, hasLink, creating,
+                                                m_tray && m_tray->IsIconInstalled(), ourScreen, screenStarting,
+                                                programStarting);
     if (menuState != m_menuState)
     {
         m_menuState = menuState;
@@ -1733,6 +1908,11 @@ void FriendsListFrame::ToggleScreenShare()
         ShowNotice("A game is running already: invite someone to it instead.", NoticeWarning);
         return;
     }
+    if (ProgramLauncher::Starting())
+    {
+        ShowNotice("Steam is still starting " + ProgramLauncher::Name() + ". Try again in a moment.", NoticeWarning);
+        return;
+    }
     std::string error;
     if (!ScreenShare::Start(error))
     {
@@ -1969,6 +2149,12 @@ void FriendsListFrame::OnTick(wxTimerEvent&)
         break;
     default:
         break;
+    }
+    if (ProgramLauncher::Tick() == ProgramLauncher::TickNotStarted)
+    {
+        m_startingGame = 0;
+        ShowNotice("Steam didn't start " + ProgramLauncher::Name() +
+                   ". Check that the program starts when you open it yourself, or restart Steam.", NoticeWarning);
     }
     UpdateGuestNotices();
     UpdateStatus();
@@ -2322,13 +2508,13 @@ bool FriendsListFrame::ConfirmScreenSharing()
     }
     // Share my screen was chosen for exactly this; sharing the screen this
     // session already asked once; and some games were OK'd for good.
-    if (ScreenShare::IsOurs(game) || m_pRemoteInvite->IsSharingDesktop() || WholeScreenAllowed(game.ToUint64()))
+    if (ScreenShare::IsOurs(game) || m_pRemoteInvite->IsSharingDesktop() || WholeScreenAllowed(WholeScreenKey(game)))
     {
         return true;
     }
 
     const uint32 account = GClientContext()->SteamUser()->GetSteamID().GetAccountID();
-    const wxString name = GetGameName(game, account);
+    const wxString name = ProgramLauncher::IsOurs(game) ? ProgramLauncher::Name() : GetGameName(game, account);
     wxRichMessageDialog dialog(this,
                                "This isn't a Steam game, so your guests see only the game while it's in front, but "
                                "whenever you switch to another window, Remote Play shows them your whole screen. "
@@ -2346,7 +2532,7 @@ bool FriendsListFrame::ConfirmScreenSharing()
     }
     if (dialog.IsCheckBoxChecked())
     {
-        AllowWholeScreen(game.ToUint64());
+        AllowWholeScreen(WholeScreenKey(game));
         RefreshMenus();
     }
     return true;
@@ -2466,7 +2652,7 @@ void FriendsListFrame::OnGuestLinkHotKey()
     // window first (after that, the shortcut works for it too), unless it was
     // OK'd for good.
     const bool desktop = !(game.IsSteamApp() && game.AppID() != m_pRemoteInvite->GetNonSteamAppID());
-    if (desktop && !m_pRemoteInvite->IsSharingDesktop() && !WholeScreenAllowed(game.ToUint64()))
+    if (desktop && !m_pRemoteInvite->IsSharingDesktop() && !WholeScreenAllowed(WholeScreenKey(game)))
     {
         Announce("Create this link in Remote Play Whatever",
                  "This isn't a Steam game, so guests would see your whole screen whenever it isn't in front. "
