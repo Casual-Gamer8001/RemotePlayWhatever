@@ -578,8 +578,11 @@ void FriendsListFrame::ShowFriendMenu(uint64 friendID, const wxPoint& screenPosi
 }
 
 // A game's small picture for the recent games list, w x h pixels: its
-// artwork cut to that shape, or its initials on a colour.
-static wxBitmap GameThumbnail(const wxString& path, const wxString& name, unsigned long long seed, int w, int h)
+// artwork cut to that shape, or its initials on a colour. scale = the
+// window's pixels per DIP: the bitmap is marked with it, so wxStaticBitmap
+// doesn't enlarge it once more and the initials are drawn at full size.
+static wxBitmap GameThumbnail(const wxString& path, const wxString& name, unsigned long long seed, int w, int h,
+                              double scale)
 {
     wxImage image;
     if (!path.empty())
@@ -590,23 +593,34 @@ static wxBitmap GameThumbnail(const wxString& path, const wxString& name, unsign
     if (image.IsOk() && image.GetWidth() > 0 && image.GetHeight() > 0)
     {
         // Cut the middle to the thumbnail's shape, then shrink it.
-        const double scale = std::max((double)w / image.GetWidth(), (double)h / image.GetHeight());
-        const int cutW = std::min(image.GetWidth(), (int)std::lround(w / scale));
-        const int cutH = std::min(image.GetHeight(), (int)std::lround(h / scale));
+        const double fit = std::max((double)w / image.GetWidth(), (double)h / image.GetHeight());
+        const int cutW = std::min(image.GetWidth(), (int)std::lround(w / fit));
+        const int cutH = std::min(image.GetHeight(), (int)std::lround(h / fit));
         image = image.GetSubImage(wxRect((image.GetWidth() - cutW) / 2, (image.GetHeight() - cutH) / 2, cutW, cutH));
         image.Rescale(w, h, wxIMAGE_QUALITY_HIGH);
         if (image.HasAlpha())
         {
             image.ClearAlpha();
         }
-        return wxBitmap(image);
+        wxBitmap picture(image);
+        picture.SetScaleFactor(scale);
+        return picture;
     }
     wxBitmap bitmap(w, h);
+    // Before the DC: a memory DC sizes fonts for its bitmap's scale factor.
+    bitmap.SetScaleFactor(scale);
     wxMemoryDC dc(bitmap);
     dc.SetBackground(wxBrush(Ui::PlaceholderColour(seed)));
     dc.Clear();
     wxFont font = wxSystemSettings::GetFont(wxSYS_DEFAULT_GUI_FONT);
-    font.SetPixelSize(wxSize(0, std::max(8, h / 2)));
+    const int textHeight = std::max(8, h / 2);
+#ifdef __WXMSW__
+    // In points at the DC's resolution (96 dpi x scale): a pixel size would be
+    // turned into points at the primary screen's resolution instead.
+    font.SetFractionalPointSize(textHeight * 72.0 / (96.0 * scale));
+#else
+    font.SetPixelSize(wxSize(0, textHeight));
+#endif
     dc.SetFont(Ui::SemiBold(font));
     dc.SetTextForeground(*wxWHITE);
     const wxString initials = Ui::Initials(name);
@@ -673,6 +687,9 @@ void FriendsListFrame::RefreshRecentGames(bool show, uint32 accountID)
     };
     // A row: the game's picture, its name and a Play button.
     const wxSize thumb = FromDIP(wxSize(56, 26));
+    // The pictures are made at the screen's pixel size (FromDIP above) and
+    // marked with this (GameThumbnail); 1 where pixels aren't scaled (macOS, GTK).
+    const double pictureScale = FromDIP(100) / 100.0;
     auto addRow = [this](const wxBitmap& picture, const wxString& name, const wxString& tip,
                          unsigned long long key, std::function<void()> play) -> Card*
     {
@@ -710,8 +727,8 @@ void FriendsListFrame::RefreshRecentGames(bool show, uint32 accountID)
     {
         const unsigned long long id = (unsigned long long)games[i].game.ToUint64();
         const wxString name = games[i].name;
-        addRow(GameThumbnail(GetGameThumbnailPath(games[i].game, accountID), name, id, thumb.x, thumb.y), name, name,
-               id, [this, id, name]() { StartGame(id, name); });
+        addRow(GameThumbnail(GetGameThumbnailPath(games[i].game, accountID), name, id, thumb.x, thumb.y, pictureScale),
+               name, name, id, [this, id, name]() { StartGame(id, name); });
     }
 
     // Steam doesn't keep these programs, so they're the app's own list.
@@ -729,8 +746,8 @@ void FriendsListFrame::RefreshRecentGames(bool show, uint32 accountID)
             tip += " " + program.options;
         }
         tip += "\nRight-click to change or remove it.";
-        Card* row = addRow(GameThumbnail(wxEmptyString, program.name, key, thumb.x, thumb.y), program.name, tip, key,
-                           [this, program]() { StartProgram(program); });
+        Card* row = addRow(GameThumbnail(wxEmptyString, program.name, key, thumb.x, thumb.y, pictureScale),
+                           program.name, tip, key, [this, program]() { StartProgram(program); });
         // Right-click (on the row or its button): change or remove it.
         row->Bind(wxEVT_CONTEXT_MENU, [this, program](wxContextMenuEvent& event)
         {
